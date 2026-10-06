@@ -2,6 +2,7 @@ package com.hcebox.driver.androidnative
 
 import android.app.Application
 import android.content.Context
+import com.hcebox.driver.androidnative.connection.NativeController
 
 /** Android owns this process lifetime; no static field retains a Context or controller. */
 class NativeApp : Application() {

@@ -5,6 +5,7 @@ import android.app.Instrumentation
 import android.content.*
 import android.os.*
 import com.hcebox.cardreader.api.*
+import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.reader.protocol.Apdu
 import com.hcebox.reader.protocol.Status
 import java.util.concurrent.*

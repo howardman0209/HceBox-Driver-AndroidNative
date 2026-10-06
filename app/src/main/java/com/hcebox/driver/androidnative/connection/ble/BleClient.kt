@@ -1,4 +1,4 @@
-package com.hcebox.driver.androidnative
+package com.hcebox.driver.androidnative.connection.ble
 
 import android.annotation.SuppressLint
 import android.bluetooth.*

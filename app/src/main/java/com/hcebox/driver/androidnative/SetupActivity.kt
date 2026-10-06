@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import com.hcebox.driver.androidnative.setup.missingPermissions
+import com.hcebox.driver.androidnative.setup.optionalSetupPermissions
 
 /** Transparent permission-only entry point shared by HceBox and the driver's UI. */
 class SetupActivity : ComponentActivity() {

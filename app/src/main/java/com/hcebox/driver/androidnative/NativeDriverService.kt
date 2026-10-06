@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.*
 import com.hcebox.cardreader.api.*
+import com.hcebox.driver.androidnative.connection.NativeController
+import com.hcebox.driver.androidnative.setup.missingPermissions
 import kotlinx.coroutines.*
 
 /** Exposes the remote Android NFC reader through the existing versioned AIDL API. */

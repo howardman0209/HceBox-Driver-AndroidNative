@@ -1,4 +1,4 @@
-package com.hcebox.driver.androidnative
+package com.hcebox.driver.androidnative.connection
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
@@ -8,6 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import com.hcebox.cardreader.api.DeviceInfo
+import com.hcebox.driver.androidnative.connection.tcp.TcpDiscovery
+import com.hcebox.driver.androidnative.nativeController
+import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.reader.protocol.BluetoothContract
 import kotlinx.coroutines.flow.MutableStateFlow
 

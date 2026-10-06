@@ -1,4 +1,4 @@
-package com.hcebox.driver.androidnative
+package com.hcebox.driver.androidnative.connection.tcp
 
 import android.content.Context
 import android.net.Network

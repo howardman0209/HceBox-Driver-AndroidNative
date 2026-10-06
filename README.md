@@ -118,3 +118,15 @@ For a test that must use NSD (ignoring any saved manual endpoint), add
 `-e heartbeat true` to observe a heartbeat while idle; no card APDU is sent unless
 explicitly provided. Android 34+ service-info callbacks track address updates;
 older resolvers are serialized, with fresh resolution on connect.
+
+## Source responsibilities
+
+Android entry points stay in the root package to preserve installed component
+names. `connection/` coordinates discovery and remote sessions; its `tcp/` and
+`ble/` packages own platform transport details. `setup/` contains permission rules.
+`ui/` owns navigation, `ui/screens/` renders individual pages, `ui/components/`
+contains reusable rows/cards, and `ui/theme/` contains the palette.
+
+Launcher masters: `app/src/main/ic_launcher-source.png` (original generated
+1254px artwork) and `ic_launcher-playstore.png` (512px store export). Runtime icons
+are density-specific WebP resources, adaptive icons and a monochrome vector.

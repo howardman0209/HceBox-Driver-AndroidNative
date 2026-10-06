@@ -1,9 +1,10 @@
-package com.hcebox.driver.androidnative
+package com.hcebox.driver.androidnative.setup
 
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import com.hcebox.driver.androidnative.nativeController
 
 /**
  * Only the selected transport participates in readiness; TCP on Android 17 requires the LAN runtime

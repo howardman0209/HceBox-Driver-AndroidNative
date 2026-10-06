@@ -1,4 +1,4 @@
-package com.hcebox.driver.androidnative
+package com.hcebox.driver.androidnative.connection
 
 import android.bluetooth.BluetoothManager
 import android.content.Context
@@ -9,6 +9,9 @@ import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.cardreader.api.ReaderInfo
 import com.hcebox.cardreader.api.ReaderStatus
+import com.hcebox.driver.androidnative.connection.ble.BleClient
+import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
+import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.reader.protocol.Apdu
 import com.hcebox.reader.protocol.BluetoothContract
 import com.hcebox.reader.protocol.Deadline

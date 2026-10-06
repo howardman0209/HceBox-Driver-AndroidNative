@@ -46,9 +46,12 @@ class NativeController(context: Context) {
             check(adapter?.isEnabled == true) { "Bluetooth disabled" }
             return adapter.bondedDevices.map { DeviceInfo("CLASSIC:${it.address}", it.name ?: "Bluetooth device", "Classic bonded device") }
         }
-        if (host.isBlank()) return emptyList()
+        return (listOfNotNull(manualEndpoint()?.device) + discovery.tcp.endpoints().map { it.device }).distinctBy { it.deviceId }
+    }
+    private fun manualEndpoint(): TcpEndpoint? {
+        if (host.isBlank()) return null
         val id = prefs.getString("endpoint", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("endpoint", it).apply() }
-        return listOf(DeviceInfo("TCP:$id", "Android NFC Reader", "TCP $host:$port (configured)"))
+        return TcpEndpoint(DeviceInfo("TCP:$id", "Manual Android NFC Reader", "TCP $host:$port (manual)"), listOf(host), port)
     }
     fun log(message: String) { Log.d("NativeDriver", message); notes.value = (message + "\n" + notes.value).take(3000) }
     @android.annotation.SuppressLint("MissingPermission")
@@ -64,9 +67,11 @@ class NativeController(context: Context) {
                 token = ++generation
             }
             val device = devices().firstOrNull { it.deviceId == id } ?: throw IllegalArgumentException("Device not found")
+            if (missingPermissions(context).isNotEmpty()) throw SecurityException("Transport permissions required")
             val selectedMode = mode
-            val selectedHost = host; val selectedPort = port
-            val socket = Socket()
+            val manual = if (selectedMode == "TCP" && !device.deviceId.startsWith("TCP:NSD:")) manualEndpoint()?.takeIf { it.device.deviceId == device.deviceId } else null
+            val expectedInstallationId = if (device.deviceId.startsWith("TCP:NSD:")) device.deviceId.removePrefix("TCP:NSD:") else null
+            val socket = java.util.concurrent.atomic.AtomicReference<Socket?>()
             val bluetooth = if (selectedMode == "CLASSIC") {
                 if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
                 val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: error("Bluetooth unavailable")
@@ -80,14 +85,24 @@ class NativeController(context: Context) {
                         bluetooth.connect(); deadline.remaining()
                         return@submit StreamChannel(bluetooth.inputStream, bluetooth.outputStream, { bluetooth.close() })
                     }
-                    val address = InetSocketAddress(selectedHost, selectedPort)
-                    deadline.remaining()
-                    socket.connect(address, deadline.remaining())
-                    StreamChannel(socket)
-                } catch (error: Throwable) { socket.close(); runCatching { bluetooth?.close() }; throw error }
+                    val endpoint = if (device.deviceId.startsWith("TCP:NSD:")) discovery.tcp.refresh(device.deviceId, deadline)
+                        else manual ?: throw IllegalArgumentException("TCP endpoint not found")
+                    var lastError: java.io.IOException? = null
+                    for (host in endpoint.hosts) for (address in java.net.InetAddress.getAllByName(host)) {
+                        deadline.remaining()
+                        val connection = endpoint.network?.socketFactory?.createSocket() ?: Socket()
+                        socket.set(connection)
+                        try {
+                            if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("Connection cancelled")
+                            connection.connect(InetSocketAddress(address, endpoint.port), deadline.remaining())
+                            return@submit StreamChannel(connection)
+                        } catch (error: java.io.IOException) { connection.close(); lastError = error }
+                    }
+                    throw lastError ?: java.io.IOException("TCP endpoint has no usable address")
+                } catch (error: Throwable) { socket.get()?.close(); runCatching { bluetooth?.close() }; throw error }
             }
             val channel = try { future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS) }
-                catch (error: Exception) { socket.close(); runCatching { bluetooth?.close() }; future.cancel(true); throw error }
+                catch (error: Exception) { socket.get()?.close(); runCatching { bluetooth?.close() }; future.cancel(true); throw error }
             candidate = ReaderClient(channel, { status -> synchronized(lock) {
                 if (generation == token && view.value.device != null) {
                     if (status.lastError != 0 && status.lastError != view.value.status.lastError) log("Reader status error=${cardError(status.lastError).code}")
@@ -97,6 +112,7 @@ class NativeController(context: Context) {
                 if (generation == token) { client = null; view.value = View(error = error?.let(::failure)); log("Disconnected: ${if (error == null) "requested" else error.message ?: error.javaClass.simpleName}") }
             } }, ::log)
             candidate.handshake(deadline)
+            check(expectedInstallationId == null || candidate.hello?.installationId == expectedInstallationId) { "Reader identity differs from NSD announcement" }
             synchronized(lock) {
                 deadline.remaining()
                 if (token != generation || !candidate.isOpen()) throw ReaderFailure(5, "Connection cancelled")

@@ -42,18 +42,23 @@ class MainActivity : ComponentActivity() {
                     FilterChip(selected = mode == choice, enabled = state.device == null && !busy,
                         onClick = { controller.setMode(choice); mode = choice; controller.discovery.stop(this@MainActivity); chosen = null }, label = { Text(choice) })
                 } }
-                if (mode != "TCP") {
-                    OutlinedButton(onClick = { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }) { Text("Grant Bluetooth permissions") }
-                    OutlinedButton(onClick = { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth pairing") }
-                    Button(enabled = !busy, onClick = { controller.discovery.start(this@MainActivity) { controller.failure(it) } }) { Text(if (mode == "BLE") "Scan BLE readers" else "Find bonded devices") }
-                    devices.forEach { device -> FilterChip(selected = chosen == device.deviceId, onClick = { chosen = device.deviceId }, label = {Text(device.displayName)}) }
+                OutlinedButton(onClick = { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }) { Text("Grant transport permissions") }
+                if (mode != "TCP") OutlinedButton(onClick = { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth pairing") }
+                Button(enabled = !busy, onClick = { controller.discovery.start(this@MainActivity) { controller.failure(it) } }) {
+                    Text(when(mode) { "TCP" -> "Find readers on network"; "BLE" -> "Scan BLE readers"; else -> "Find bonded devices" })
                 }
-                if (mode == "TCP") OutlinedTextField(host, {host=it}, enabled = state.device == null && !busy, label = {Text("Reader hostname / IP")})
-                if (mode == "TCP") OutlinedTextField(port, {port=it}, enabled = state.device == null && !busy, label = {Text("TCP port")})
+                devices.forEach { device -> FilterChip(selected = chosen == device.deviceId, enabled = state.device == null && !busy,
+                    onClick = { chosen = device.deviceId }, label = {Text("${device.displayName} · ${device.detail ?: ""}")}) }
+                if (mode == "TCP") Text("Manual IP / port fallback (optional)")
+                if (mode == "TCP") OutlinedTextField(host, {host=it; chosen=null}, enabled = state.device == null && !busy, label = {Text("Reader hostname / IP")})
+                if (mode == "TCP") OutlinedTextField(port, {port=it; chosen=null}, enabled = state.device == null && !busy, label = {Text("TCP port")})
                 Button(enabled = !busy, onClick = { work {
                     if (state.device != null) controller.disconnect() else {
-                        if (mode == "TCP") controller.configure(host, port.toInt())
-                        controller.connect(if (mode == "TCP") controller.devices().first().deviceId else chosen, 5000)
+                        val id = chosen ?: if (mode == "TCP") {
+                            controller.configure(host, port.toInt())
+                            controller.devices().first { !it.deviceId.startsWith("TCP:NSD:") }.deviceId
+                        } else null
+                        controller.connect(id, 5000)
                     }
                 } }) { Text(if (state.device == null) "Connect" else "Disconnect") }
                 Text("Connected: ${state.device?.detail ?: "No"}\nCard: ${state.status.present} (last observed)\nSelected: ${state.status.selected}\nReader error: ${controller.readerStatus()?.lastError?.code ?: "None"}")

@@ -24,8 +24,11 @@ new Git submodule, or vendor SDK is involved.
 
 ## Operation
 
-- TCP: enter reader hostname/IP and port (default 35965); Connect saves the
-  endpoint. Discovery reports the configured endpoint without probing it.
+- TCP: tap Find readers on network, select a discovered Reader, then Connect.
+  NSD resolves its actual port and IPv4/IPv6 addresses; no manual setup is needed.
+  Hostname/IP and port remain an optional fallback (default 35965). Editing
+  fallback fields clears the selected discovered device so Connect uses manual
+  input. Manual endpoints are listed without claiming reachability.
 - Classic: choose CLASSIC, grant permissions, pair through system settings,
   list bonded devices, and choose the reader device. Service compatibility is
   verified on connection through the fixed RFCOMM UUID and protocol handshake.
@@ -40,7 +43,8 @@ reader. After OS process death, explicitly reconnect and reselect.
 
 In HceBox: Settings -> Card Transport -> Proxy -> Scan -> Android Native NFC
 Reader. The driver setup Activity handles transport-specific permissions;
-TCP needs no Bluetooth runtime grant. Slot index is zero. Selection does not
+TCP needs no Bluetooth runtime grant; Android 17 requires the local-network
+permission through the same setup Activity. Slot index is zero. Selection does not
 wait for a card. Failures are typed AIDL errors; HceBox owns their status-word
 mapping. Relay is future work and has no active selector.
 
@@ -93,3 +97,15 @@ command. Place the card before starting. When the test reports it is armed,
 remove the card within 45 seconds. The test asserts the CARD_REMOVED callback,
 absence, retained selection/connection, and sends no APDU. Its reported wait
 includes human action time and is not a measured physical detection latency.
+
+NSD discovery is local multicast, so VLAN/AP isolation may prevent it even when
+manual TCP is reachable. Service loss removes the discovery item without forcing
+disconnection. A selected endpoint is re-resolved under its original connect
+deadline, including after discovery stops, and HELLO checks announced identity.
+TXT/HELLO consistency is not peer authentication. Protocol v2 and AIDL are unchanged.
+
+For a test that must use NSD (ignoring any saved manual endpoint), add
+`-e nsd true` to a TCP instrumentation command and omit `-e host`. Add
+`-e heartbeat true` to observe a heartbeat while idle; no card APDU is sent unless
+explicitly provided. Android 34+ service-info callbacks track address updates;
+older resolvers are serialized, with fresh resolution on connect.

@@ -28,7 +28,8 @@ class DriverSmokeInstrumentation : Instrumentation() {
             verifyRemovalStatusMapping()
             controller.disconnect()
             controller.setMode(arguments.getString("mode", "TCP"))
-            if (controller.mode == "TCP") controller.configure(arguments.getString("host", controller.host), 35965)
+            val nsd = arguments.getString("nsd") == "true"
+            if (controller.mode == "TCP" && !nsd) controller.configure(arguments.getString("host", controller.host), 35965)
             bound = targetContext.bindService(Intent(targetContext, NativeDriverService::class.java), connection, Context.BIND_AUTO_CREATE)
             check(bound) { "Driver service binding failed" }
             val driver = service.get(5, TimeUnit.SECONDS)
@@ -40,7 +41,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
             val callback = object : IDiscoveryCallback.Stub() {
                 override fun onDiscoveryStarted() {}
                 override fun onDiscoveryStopped() {}
-                override fun onDeviceFound(device: DeviceInfo) { if (targetId == null || targetId == device.deviceId) found.complete(device) }
+                override fun onDeviceFound(device: DeviceInfo) { if ((targetId == null || targetId == device.deviceId) && (!nsd || device.deviceId.startsWith("TCP:NSD:"))) found.complete(device) }
                 override fun onDeviceLost(id: String?) {}
                 override fun onDiscoveryFailed(error: DriverError) { found.completeExceptionally(IllegalStateException(error.message)) }
             }
@@ -96,6 +97,10 @@ class DriverSmokeInstrumentation : Instrumentation() {
                 arguments.getString("expected")?.let { check(Apdu.hex(response) == it.uppercase()) { "Response differs from local baseline" } }
             }
             check(status.isSelected)
+            if (arguments.getString("heartbeat") == "true") {
+                Thread.sleep(11000)
+                check(driver.listConnectedDevices().single().deviceId == device.deviceId) { "Heartbeat must retain the connection" }
+            }
             if (!status.isCardPresent && !idleRemoval) {
                 val result = driver.transmit(device.deviceId, 0, byteArrayOf(0, 0xA4.toByte(), 4, 0, 0), 2000)
                 check(result.error?.code == if (status.lastError?.code == CardReaderErrorCode.CARD_REMOVED) CardReaderErrorCode.CARD_REMOVED else CardReaderErrorCode.CARD_ABSENT) { "No-card mapping failed: $result" }
@@ -106,7 +111,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
             check(driver.listReaders().isEmpty() && driver.listConnectedDevices().isEmpty())
             driver.unregisterDriverCallback(updates)
             val detail = results.getString("idleRemoval") ?: results.getString("apdu") ?: results.getString("card") ?: "No-card mapping tested"
-            results.putString("stream", "AIDL discovery/connect/callback/select/transmit/unselect/disconnect passed via ${controller.mode}\n$detail\n")
+            results.putString("stream", "AIDL discovery/connect/callback/select/transmit/unselect/disconnect passed via ${controller.mode}${if (nsd) " NSD" else ""}\n$detail\n")
         } catch (error: Throwable) {
             results.putString("error", error.stackTraceToString()); resultCode = Activity.RESULT_CANCELED
         } finally {

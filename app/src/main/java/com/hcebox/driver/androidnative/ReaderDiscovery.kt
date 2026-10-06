@@ -18,6 +18,7 @@ class ReaderDiscovery(private val context: Context) {
     private val handler = Handler(Looper.getMainLooper())
     private val owners = mutableMapOf<Any, (Throwable) -> Unit>()
     private val observed = mutableMapOf<String, Pair<DeviceInfo, Long>>()
+    val tcp = TcpDiscovery(context, { devices.value = context.nativeController.devices() }, { context.nativeController.log(it) })
     private var scanner: BluetoothLeScanner? = null
     private var generation = 0L
     private var activeCallback: ScanCallback? = null
@@ -41,8 +42,12 @@ class ReaderDiscovery(private val context: Context) {
     }
     fun start(owner: Any, failure: (Throwable) -> Unit) { handler.post {
         owners[owner] = failure
-        if (scanner != null) return@post
+        if (scanner != null || tcp.isRunning) return@post
         try {
+            if (missingPermissions(context).isNotEmpty()) throw SecurityException("Transport permissions required")
+            if (context.nativeController.mode == "TCP") {
+                devices.value = context.nativeController.devices(); tcp.start(::failed); return@post
+            }
             if (context.nativeController.mode != "BLE") { devices.value = context.nativeController.devices(); return@post }
             if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
             observed.clear(); devices.value = emptyList()
@@ -57,6 +62,6 @@ class ReaderDiscovery(private val context: Context) {
     fun reset() { handler.post { failed(IllegalStateException("Discovery configuration changed")); observed.clear(); devices.value = emptyList() } }
     fun refresh() { handler.post { if (context.nativeController.mode != "BLE") devices.value = context.nativeController.devices() } }
     fun stop(owner: Any) { handler.post { owners.remove(owner); if (owners.isEmpty()) stopScan() } }
-    private fun stopScan() { generation++; activeCallback?.let { callback -> runCatching { scanner?.stopScan(callback) } }; activeCallback = null; scanner = null; handler.removeCallbacks(expiry) }
+    private fun stopScan() { tcp.stop(); generation++; activeCallback?.let { callback -> runCatching { scanner?.stopScan(callback) } }; activeCallback = null; scanner = null; handler.removeCallbacks(expiry) }
     private fun failed(error: Throwable) { val listeners = owners.values.toList(); owners.clear(); stopScan(); listeners.forEach { it(error) } }
 }

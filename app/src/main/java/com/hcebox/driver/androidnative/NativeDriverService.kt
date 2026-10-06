@@ -15,13 +15,14 @@ class NativeDriverService : Service() {
     private var foreground = false
     private val binder = object : ICardReaderDriver.Stub() {
         override fun getDriverInfo() = DriverInfo(CardReaderDriverContract.API_VERSION, "Android Native NFC Reader", "0.1.0", "HceBox", listOf("Android ISO-DEP Reader"))
-        override fun getDriverStatus() = DriverStatus(DriverReadiness.READY, "Configure a TCP endpoint in the driver app")
+        override fun getDriverStatus() = if (missingPermissions(this@NativeDriverService).isEmpty()) DriverStatus(DriverReadiness.READY) else DriverStatus(DriverReadiness.PERMISSION_REQUIRED)
         override fun startDiscovery(callback: IDiscoveryCallback?) {
             callback ?: return
             discoveries.register(callback)
             scope.launch {
                 runCatching { callback.onDiscoveryStarted() }
-                NativeController.devices().forEach { runCatching { callback.onDeviceFound(it) } }
+                try { NativeController.devices().forEach { runCatching { callback.onDeviceFound(it) } } }
+                catch (error: Exception) { discoveries.unregister(callback); runCatching { callback.onDiscoveryFailed(NativeController.failure(error)) } }
             }
         }
         override fun stopDiscovery(callback: IDiscoveryCallback?) {

@@ -26,6 +26,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by NativeController.view.collectAsStateWithLifecycle()
             val notes by NativeController.notes.collectAsStateWithLifecycle()
+            var mode by remember { mutableStateOf(NativeController.mode) }
+            var devices by remember { mutableStateOf(emptyList<com.hcebox.cardreader.api.DeviceInfo>()) }
+            var chosen by remember { mutableStateOf<String?>(null) }
             var host by remember { mutableStateOf(NativeController.host) }
             var port by remember { mutableStateOf(NativeController.port.toString()) }
             var busy by remember { mutableStateOf(false) }
@@ -34,14 +37,24 @@ class MainActivity : ComponentActivity() {
             } }
             MaterialTheme { Surface { Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Android Native Driver", style = MaterialTheme.typography.headlineSmall)
-                OutlinedTextField(host, {host=it}, enabled = state.device == null && !busy, label = {Text("Reader hostname / IP")})
-                OutlinedTextField(port, {port=it}, enabled = state.device == null && !busy, label = {Text("TCP port")})
+                Row { listOf("TCP", "CLASSIC").forEach { choice ->
+                    FilterChip(selected = mode == choice, enabled = state.device == null && !busy,
+                        onClick = { NativeController.setMode(choice); mode = choice; devices = emptyList(); chosen = null }, label = { Text(choice) })
+                } }
+                if (mode != "TCP") {
+                    OutlinedButton(onClick = { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }) { Text("Grant Bluetooth permissions") }
+                    OutlinedButton(onClick = { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth pairing") }
+                    Button(enabled = !busy, onClick = { work { devices = NativeController.devices() } }) { Text("Find bonded devices") }
+                    devices.forEach { device -> FilterChip(selected = chosen == device.deviceId, onClick = { chosen = device.deviceId }, label = {Text(device.displayName)}) }
+                }
+                if (mode == "TCP") OutlinedTextField(host, {host=it}, enabled = state.device == null && !busy, label = {Text("Reader hostname / IP")})
+                if (mode == "TCP") OutlinedTextField(port, {port=it}, enabled = state.device == null && !busy, label = {Text("TCP port")})
                 Button(enabled = !busy, onClick = { work {
                     if (state.device != null) NativeController.disconnect() else {
-                        NativeController.configure(host, port.toInt())
-                        NativeController.connect(NativeController.devices().first().deviceId, 5000)
+                        if (mode == "TCP") NativeController.configure(host, port.toInt())
+                        NativeController.connect(if (mode == "TCP") NativeController.devices().first().deviceId else chosen, 5000)
                     }
-                } }) { Text(if (state.device == null) "Save and connect" else "Disconnect") }
+                } }) { Text(if (state.device == null) "Connect" else "Disconnect") }
                 Text("Connected: ${state.device?.detail ?: "No"}\nCard: ${state.status.present} (last observed)\nSelected: ${state.status.selected}")
                 Text("HceBox: Settings → Card Transport → Proxy → Scan → Android Native NFC Reader")
                 Text(notes, style = MaterialTheme.typography.bodySmall)

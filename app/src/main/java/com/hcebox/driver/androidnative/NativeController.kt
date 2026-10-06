@@ -1,6 +1,7 @@
 package com.hcebox.driver.androidnative
 
 import android.content.Context
+import android.bluetooth.BluetoothManager
 import android.util.Log
 import com.hcebox.cardreader.api.*
 import com.hcebox.reader.protocol.*
@@ -23,6 +24,11 @@ object NativeController {
     private val workers = Executors.newCachedThreadPool { Thread(it, "NativeConnect").apply { isDaemon = true } }
     fun init(value: Context) { context = value.applicationContext }
     private val prefs get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
+    val mode get() = prefs.getString("mode", "TCP") ?: "TCP"
+    fun setMode(value: String) {
+        require(value in listOf("TCP", "CLASSIC", "BLE")); check(view.value.device == null)
+        prefs.edit().putString("mode", value).apply()
+    }
     val host get() = prefs.getString("host", "") ?: ""
     val port get() = prefs.getInt("port", 35965)
     fun configure(host: String, port: Int) {
@@ -30,12 +36,20 @@ object NativeController {
         check(view.value.device == null) { "Disconnect before editing endpoint" }
         prefs.edit().putString("host", host.trim()).putInt("port", port).apply()
     }
+    @android.annotation.SuppressLint("MissingPermission")
     fun devices(): List<DeviceInfo> {
+        if (mode != "TCP") {
+            if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
+            val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+            check(adapter?.isEnabled == true) { "Bluetooth disabled" }
+            return adapter.bondedDevices.map { DeviceInfo("CLASSIC:${it.address}", it.name ?: "Bluetooth device", "Classic bonded device") }
+        }
         if (host.isBlank()) return emptyList()
         val id = prefs.getString("endpoint", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("endpoint", it).apply() }
         return listOf(DeviceInfo("TCP:$id", "Android NFC Reader", "TCP $host:$port (configured)"))
     }
     fun log(message: String) { Log.d("NativeDriver", message); notes.value = (message + "\n" + notes.value).take(3000) }
+    @android.annotation.SuppressLint("MissingPermission")
     fun connect(id: String?, timeoutMs: Int) {
         val deadline = Deadline(timeoutMs)
         if (!connectGate.tryAcquire()) throw ReaderFailure(6, "Connection in progress")
@@ -49,16 +63,26 @@ object NativeController {
             }
             val device = devices().firstOrNull { it.deviceId == id } ?: throw IllegalArgumentException("Device not found")
             val socket = Socket()
+            val bluetooth = if (mode == "CLASSIC") {
+                if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
+                val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: error("Bluetooth unavailable")
+                adapter.cancelDiscovery()
+                adapter.getRemoteDevice(device.deviceId.removePrefix("CLASSIC:")).createRfcommSocketToServiceRecord(BluetoothContract.CLASSIC)
+            } else null
             val future = workers.submit<MessageChannel> {
                 try {
+                    if (bluetooth != null) {
+                        bluetooth.connect(); deadline.remaining()
+                        return@submit StreamChannel(bluetooth.inputStream, bluetooth.outputStream, { bluetooth.close() })
+                    }
                     val address = InetSocketAddress(host, port)
                     deadline.remaining()
                     socket.connect(address, deadline.remaining())
                     StreamChannel(socket)
-                } catch (error: Throwable) { socket.close(); throw error }
+                } catch (error: Throwable) { socket.close(); runCatching { bluetooth?.close() }; throw error }
             }
             val channel = try { future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS) }
-                catch (error: Exception) { socket.close(); future.cancel(true); throw error }
+                catch (error: Exception) { socket.close(); runCatching { bluetooth?.close() }; future.cancel(true); throw error }
             candidate = ReaderClient(channel, { status -> synchronized(lock) {
                 if (generation == token && view.value.device != null) view.value = view.value.copy(status = status)
             } }, { error -> synchronized(lock) {

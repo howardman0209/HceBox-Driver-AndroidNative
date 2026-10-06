@@ -17,17 +17,18 @@ object NativeController {
     val view = MutableStateFlow(View())
     val notes = MutableStateFlow("Ready")
     private lateinit var context: Context
+    lateinit var discovery: ReaderDiscovery; private set
     private val lock = Any()
     private val connectGate = Semaphore(1)
     private var generation = 0L
     private var client: ReaderClient? = null
     private val workers = Executors.newCachedThreadPool { Thread(it, "NativeConnect").apply { isDaemon = true } }
-    fun init(value: Context) { context = value.applicationContext }
+    fun init(value: Context) { synchronized(lock) { if (!::context.isInitialized) { context = value.applicationContext; discovery = ReaderDiscovery(context) } } }
     private val prefs get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
     val mode get() = prefs.getString("mode", "TCP") ?: "TCP"
     fun setMode(value: String) {
         require(value in listOf("TCP", "CLASSIC", "BLE")); check(view.value.device == null)
-        prefs.edit().putString("mode", value).apply()
+        disconnect(); discovery.reset(); prefs.edit().putString("mode", value).apply()
     }
     val host get() = prefs.getString("host", "") ?: ""
     val port get() = prefs.getInt("port", 35965)
@@ -35,9 +36,11 @@ object NativeController {
         require(host.isNotBlank() && port in 1..65535) { "Valid host and port required" }
         check(view.value.device == null) { "Disconnect before editing endpoint" }
         prefs.edit().putString("host", host.trim()).putInt("port", port).apply()
+        discovery.refresh()
     }
     @android.annotation.SuppressLint("MissingPermission")
     fun devices(): List<DeviceInfo> {
+        if (mode == "BLE") return discovery.devices.value
         if (mode != "TCP") {
             if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
             val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
@@ -62,8 +65,10 @@ object NativeController {
                 token = ++generation
             }
             val device = devices().firstOrNull { it.deviceId == id } ?: throw IllegalArgumentException("Device not found")
+            val selectedMode = mode
+            val selectedHost = host; val selectedPort = port
             val socket = Socket()
-            val bluetooth = if (mode == "CLASSIC") {
+            val bluetooth = if (selectedMode == "CLASSIC") {
                 if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
                 val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: error("Bluetooth unavailable")
                 adapter.cancelDiscovery()
@@ -71,11 +76,12 @@ object NativeController {
             } else null
             val future = workers.submit<MessageChannel> {
                 try {
+                    if (selectedMode == "BLE") return@submit BleClient.connect(context, device.deviceId.removePrefix("BLE:"), deadline)
                     if (bluetooth != null) {
                         bluetooth.connect(); deadline.remaining()
                         return@submit StreamChannel(bluetooth.inputStream, bluetooth.outputStream, { bluetooth.close() })
                     }
-                    val address = InetSocketAddress(host, port)
+                    val address = InetSocketAddress(selectedHost, selectedPort)
                     deadline.remaining()
                     socket.connect(address, deadline.remaining())
                     StreamChannel(socket)
@@ -86,7 +92,7 @@ object NativeController {
             candidate = ReaderClient(channel, { status -> synchronized(lock) {
                 if (generation == token && view.value.device != null) view.value = view.value.copy(status = status)
             } }, { error -> synchronized(lock) {
-                if (generation == token) { client = null; view.value = View(error = error?.let(::failure)); log("Disconnected: ${error?.message ?: "requested"}") }
+                if (generation == token) { client = null; view.value = View(error = error?.let(::failure)); log("Disconnected: ${if (error == null) "requested" else error.message ?: error.javaClass.simpleName}") }
             } }, ::log)
             candidate.handshake(deadline)
             synchronized(lock) {

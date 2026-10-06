@@ -11,6 +11,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "com.hcebox.driver.androidnative.DriverSmokeInstrumentation"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {

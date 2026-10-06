@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
             val state by NativeController.view.collectAsStateWithLifecycle()
             val notes by NativeController.notes.collectAsStateWithLifecycle()
             var mode by remember { mutableStateOf(NativeController.mode) }
-            var devices by remember { mutableStateOf(emptyList<com.hcebox.cardreader.api.DeviceInfo>()) }
+            val devices by NativeController.discovery.devices.collectAsStateWithLifecycle()
             var chosen by remember { mutableStateOf<String?>(null) }
             var host by remember { mutableStateOf(NativeController.host) }
             var port by remember { mutableStateOf(NativeController.port.toString()) }
@@ -37,14 +37,14 @@ class MainActivity : ComponentActivity() {
             } }
             MaterialTheme { Surface { Column(Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Android Native Driver", style = MaterialTheme.typography.headlineSmall)
-                Row { listOf("TCP", "CLASSIC").forEach { choice ->
+                Row { listOf("TCP", "CLASSIC", "BLE").forEach { choice ->
                     FilterChip(selected = mode == choice, enabled = state.device == null && !busy,
-                        onClick = { NativeController.setMode(choice); mode = choice; devices = emptyList(); chosen = null }, label = { Text(choice) })
+                        onClick = { NativeController.setMode(choice); mode = choice; NativeController.discovery.stop(this@MainActivity); chosen = null }, label = { Text(choice) })
                 } }
                 if (mode != "TCP") {
                     OutlinedButton(onClick = { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }) { Text("Grant Bluetooth permissions") }
                     OutlinedButton(onClick = { startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth pairing") }
-                    Button(enabled = !busy, onClick = { work { devices = NativeController.devices() } }) { Text("Find bonded devices") }
+                    Button(enabled = !busy, onClick = { NativeController.discovery.start(this@MainActivity) { NativeController.failure(it) } }) { Text(if (mode == "BLE") "Scan BLE readers" else "Find bonded devices") }
                     devices.forEach { device -> FilterChip(selected = chosen == device.deviceId, onClick = { chosen = device.deviceId }, label = {Text(device.displayName)}) }
                 }
                 if (mode == "TCP") OutlinedTextField(host, {host=it}, enabled = state.device == null && !busy, label = {Text("Reader hostname / IP")})
@@ -62,6 +62,6 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onStart() { super.onStart(); bound = bindService(Intent(this, NativeDriverService::class.java), connection, BIND_AUTO_CREATE) }
-    override fun onStop() { if (bound) unbindService(connection); bound = false; super.onStop() }
+    override fun onStop() { NativeController.discovery.stop(this); if (bound) unbindService(connection); bound = false; super.onStop() }
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
 }

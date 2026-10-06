@@ -10,7 +10,9 @@ import kotlinx.coroutines.*
 /** Exposes the remote Android NFC reader through the existing versioned AIDL API. */
 class NativeDriverService : Service() {
     private val callbacks = RemoteCallbackList<IDriverCallback>()
-    private val discoveries = RemoteCallbackList<IDiscoveryCallback>()
+    private val discoveries = object : RemoteCallbackList<IDiscoveryCallback>() {
+        override fun onCallbackDied(callback: IDiscoveryCallback) { NativeController.discovery.stop(callback.asBinder()) }
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var foreground = false
     private val binder = object : ICardReaderDriver.Stub() {
@@ -21,13 +23,16 @@ class NativeDriverService : Service() {
             discoveries.register(callback)
             scope.launch {
                 runCatching { callback.onDiscoveryStarted() }
-                try { NativeController.devices().forEach { runCatching { callback.onDeviceFound(it) } } }
-                catch (error: Exception) { discoveries.unregister(callback); runCatching { callback.onDiscoveryFailed(NativeController.failure(error)) } }
+                NativeController.discovery.start(callback.asBinder()) { error ->
+                    discoveries.unregister(callback)
+                    runCatching { callback.onDiscoveryFailed(NativeController.failure(error)) }
+                }
+                NativeController.discovery.devices.value.forEach { runCatching { callback.onDeviceFound(it) } }
             }
         }
         override fun stopDiscovery(callback: IDiscoveryCallback?) {
             callback ?: return
-            discoveries.unregister(callback); scope.launch { runCatching { callback.onDiscoveryStopped() } }
+            NativeController.discovery.stop(callback.asBinder()); discoveries.unregister(callback); scope.launch { runCatching { callback.onDiscoveryStopped() } }
         }
         override fun connectDevice(deviceId: String?, timeoutMs: Int): ConnectDeviceResult = try {
             NativeController.connect(deviceId, timeoutMs)
@@ -54,6 +59,19 @@ class NativeDriverService : Service() {
     override fun onCreate() {
         super.onCreate(); NativeController.init(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("connection", "Reader connection", NotificationManager.IMPORTANCE_LOW))
+        scope.launch {
+            var previous = emptyMap<String, DeviceInfo>()
+            NativeController.discovery.devices.collect { found ->
+                val current = found.associateBy { it.deviceId }
+                val count = discoveries.beginBroadcast()
+                try { repeat(count) { index ->
+                    val callback = discoveries.getBroadcastItem(index)
+                    (previous.keys - current.keys).forEach { runCatching { callback.onDeviceLost(it) } }
+                    current.values.filter { previous[it.deviceId] != it }.forEach { runCatching { callback.onDeviceFound(it) } }
+                } } finally { discoveries.finishBroadcast() }
+                previous = current
+            }
+        }
         scope.launch {
             var previous: NativeController.View? = null
             NativeController.view.collect { current ->
@@ -86,5 +104,8 @@ class NativeDriverService : Service() {
     }
     override fun onBind(intent: Intent?) = binder
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int) = START_NOT_STICKY
-    override fun onDestroy() { scope.cancel(); callbacks.kill(); discoveries.kill(); super.onDestroy() }
+    override fun onDestroy() {
+        val count = discoveries.beginBroadcast()
+        try { repeat(count) { NativeController.discovery.stop(discoveries.getBroadcastItem(it).asBinder()) } } finally { discoveries.finishBroadcast() }
+        NativeController.disconnect(); scope.cancel(); callbacks.kill(); discoveries.kill(); super.onDestroy() }
 }

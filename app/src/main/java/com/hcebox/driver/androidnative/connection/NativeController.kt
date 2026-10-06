@@ -4,13 +4,13 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
-import com.hcebox.cardreader.api.CardReaderErrorCode
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.cardreader.api.ReaderInfo
 import com.hcebox.cardreader.api.ReaderStatus
 import com.hcebox.driver.androidnative.connection.ble.BleClient
 import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
+import com.hcebox.driver.androidnative.driver.DriverStatusMapper
 import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.reader.protocol.Apdu
 import com.hcebox.reader.protocol.BluetoothContract
@@ -23,11 +23,9 @@ import com.hcebox.reader.protocol.StreamChannel
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.UUID
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Process-wide connection owner shared by the workbench and bound service. */
@@ -41,7 +39,14 @@ class NativeController(context: Context) {
     val view = MutableStateFlow(View())
     val notes = MutableStateFlow("Ready")
     private val context = context.applicationContext
-    val discovery = ReaderDiscovery(this.context)
+    val discovery =
+        ReaderDiscovery(
+            this.context,
+            mode = { mode },
+            permissions = { missingPermissions(this.context, mode) },
+            listDevices = ::devices,
+            log = ::log,
+        )
     private val lock = Any()
     private val connectGate = Semaphore(1)
     private var generation = 0L
@@ -83,7 +88,7 @@ class NativeController(context: Context) {
     fun devices(): List<DeviceInfo> {
         if (mode == "BLE") return discovery.devices.value
         if (mode != "TCP") {
-            if (missingPermissions(context).isNotEmpty())
+            if (missingPermissions(context, mode).isNotEmpty())
                 throw SecurityException("Bluetooth permissions required")
             val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             check(adapter?.isEnabled == true) { "Bluetooth disabled" }
@@ -132,7 +137,7 @@ class NativeController(context: Context) {
             val device =
                 devices().firstOrNull { it.deviceId == id }
                     ?: throw IllegalArgumentException("Device not found")
-            if (missingPermissions(context).isNotEmpty())
+            if (missingPermissions(context, mode).isNotEmpty())
                 throw SecurityException("Transport permissions required")
             val selectedMode = mode
             val manual =
@@ -145,7 +150,7 @@ class NativeController(context: Context) {
             val socket = java.util.concurrent.atomic.AtomicReference<Socket?>()
             val bluetooth =
                 if (selectedMode == "CLASSIC") {
-                    if (missingPermissions(context).isNotEmpty())
+                    if (missingPermissions(context, mode).isNotEmpty())
                         throw SecurityException("Bluetooth permissions required")
                     val adapter =
                         context.getSystemService(BluetoothManager::class.java)?.adapter
@@ -225,7 +230,9 @@ class NativeController(context: Context) {
                                     status.lastError != 0 &&
                                         status.lastError != view.value.status.lastError
                                 )
-                                    log("Reader status error=${cardError(status.lastError).code}")
+                                    log(
+                                        "Reader status error=${DriverStatusMapper.cardError(status.lastError).code}"
+                                    )
                                 view.value = view.value.copy(status = status)
                             }
                         }
@@ -300,62 +307,16 @@ class NativeController(context: Context) {
         return connection(id, slot).transmit(command, deadline)
     }
 
-    fun reader(): ReaderInfo? =
-        view.value.device?.let {
-            ReaderInfo(it.deviceId, 0, "Android Native NFC", "HceBox", "Android ISO-DEP", null)
-        }
+    fun reader(): ReaderInfo? = view.value.device?.let(DriverStatusMapper::reader)
 
     fun readerStatus(): ReaderStatus? =
         view.value.let { state ->
-            state.device?.let {
-                ReaderStatus(
-                    it.deviceId,
-                    0,
-                    state.status.present,
-                    state.status.selected,
-                    state.status.lastError.takeIf { code -> code != 0 }?.let(::cardError),
-                )
-            }
+            state.device?.let { DriverStatusMapper.readerStatus(it, state.status) }
         }
 
-    private fun cardError(code: Int) =
-        DriverError(
-            when (code) {
-                1 -> CardReaderErrorCode.CARD_ABSENT
-                2 -> CardReaderErrorCode.CARD_REMOVED
-                3 -> CardReaderErrorCode.TIMEOUT
-                4 -> CardReaderErrorCode.UNSUPPORTED_APDU
-                6 -> CardReaderErrorCode.BUSY
-                7 -> CardReaderErrorCode.READER_NOT_SELECTED
-                8 -> CardReaderErrorCode.SETUP_REQUIRED
-                else -> CardReaderErrorCode.TRANSPORT
-            },
-            if (code == 2) "Card removed" else "Reader error code=$code",
-        )
-
     fun failure(error: Throwable): DriverError {
-        val cause = if (error is ExecutionException) error.cause ?: error else error
-        val code =
-            when (cause) {
-                is ReaderFailure ->
-                    when (cause.code) {
-                        1 -> CardReaderErrorCode.CARD_ABSENT
-                        2 -> CardReaderErrorCode.CARD_REMOVED
-                        3 -> CardReaderErrorCode.TIMEOUT
-                        4 -> CardReaderErrorCode.UNSUPPORTED_APDU
-                        6 -> CardReaderErrorCode.BUSY
-                        7 -> CardReaderErrorCode.READER_NOT_SELECTED
-                        8 -> CardReaderErrorCode.SETUP_REQUIRED
-                        else -> CardReaderErrorCode.TRANSPORT
-                    }
-
-                is TimeoutException,
-                is java.net.SocketTimeoutException -> CardReaderErrorCode.TIMEOUT
-                is SecurityException -> CardReaderErrorCode.SETUP_REQUIRED
-                is IllegalArgumentException -> CardReaderErrorCode.DEVICE_NOT_FOUND
-                else -> CardReaderErrorCode.TRANSPORT
-            }
-        log("Operation failed code=$code reason=${cause.message}")
-        return DriverError(code, cause.message)
+        val result = DriverStatusMapper.failure(error)
+        log("Operation failed code=${result.code} reason=${result.message}")
+        return result
     }
 }

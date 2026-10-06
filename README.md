@@ -126,6 +126,9 @@ names. `connection/` coordinates discovery and remote sessions; its `tcp/` and
 `ble/` packages own platform transport details. `setup/` contains permission rules.
 `ui/` owns navigation, `ui/screens/` renders individual pages, `ui/components/`
 contains reusable rows/cards, and `ui/theme/` contains the palette.
+`driver/DriverStatusMapper` projects protocol state/errors into AIDL DTOs. Discovery
+receives mode/permission/device providers rather than looking up NativeApp through
+a Context; permission rules take the selected transport explicitly.
 
 Launcher masters: `app/src/main/ic_launcher-source.png` (original generated
 1254px artwork) and `ic_launcher-playstore.png` (512px store export). Runtime icons

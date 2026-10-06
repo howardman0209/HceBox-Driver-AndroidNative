@@ -20,7 +20,7 @@ class SetupActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val required =
-            missingPermissions(this) +
+            missingPermissions(this, nativeController.mode) +
                 optionalSetupPermissions().filter {
                     checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
                 }
@@ -33,7 +33,10 @@ class SetupActivity : ComponentActivity() {
 
     private fun finishWithResult() {
         // Notification denial must not block the selected transport.
-        setResult(if (missingPermissions(this).isEmpty()) RESULT_OK else RESULT_CANCELED)
+        setResult(
+            if (missingPermissions(this, nativeController.mode).isEmpty()) RESULT_OK
+            else RESULT_CANCELED
+        )
         finish()
     }
 }

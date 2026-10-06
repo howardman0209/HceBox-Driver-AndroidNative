@@ -35,7 +35,7 @@ class NativeDriverService : Service() {
                 )
 
             override fun getDriverStatus() =
-                if (missingPermissions(this@NativeDriverService).isEmpty())
+                if (missingPermissions(this@NativeDriverService, controller.mode).isEmpty())
                     DriverStatus(DriverReadiness.READY)
                 else DriverStatus(DriverReadiness.PERMISSION_REQUIRED)
 

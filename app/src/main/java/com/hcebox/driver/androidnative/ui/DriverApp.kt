@@ -41,7 +41,9 @@ fun DriverApp(controller: NativeController) {
     var page by rememberSaveable { mutableStateOf("Readers") }
     val scroll = remember(page) { ScrollState(0) }
     var mode by remember { mutableStateOf(controller.mode) }
-    var permitted by remember { mutableStateOf(missingPermissions(context).isEmpty()) }
+    var permitted by remember {
+        mutableStateOf(missingPermissions(context, controller.mode).isEmpty())
+    }
     var busy by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -52,14 +54,14 @@ fun DriverApp(controller: NativeController) {
     val owner = remember { Any() }
     val setup =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            permitted = missingPermissions(context).isEmpty()
+            permitted = missingPermissions(context, controller.mode).isEmpty()
             refresh++
         }
     DisposableEffect(lifecycle, mode) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 mode = controller.mode
-                permitted = missingPermissions(context).isEmpty()
+                permitted = missingPermissions(context, controller.mode).isEmpty()
                 refresh++
             }
             if (event == Lifecycle.Event.ON_STOP) controller.discovery.stop(owner)
@@ -193,7 +195,7 @@ fun DriverApp(controller: NativeController) {
                             controller.setMode(it)
                             mode = it
                             error = null
-                            permitted = missingPermissions(context).isEmpty()
+                            permitted = missingPermissions(context, controller.mode).isEmpty()
                         },
                         onSetup = { setup.launch(Intent(context, SetupActivity::class.java)) },
                         onDetails = { page = "Reader details" },

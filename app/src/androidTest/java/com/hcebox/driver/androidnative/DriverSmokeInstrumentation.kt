@@ -6,6 +6,7 @@ import android.content.*
 import android.os.*
 import com.hcebox.cardreader.api.*
 import com.hcebox.driver.androidnative.connection.NativeController
+import com.hcebox.driver.androidnative.connection.ReaderDiscovery
 import com.hcebox.reader.protocol.Apdu
 import com.hcebox.reader.protocol.Status
 import java.util.concurrent.*
@@ -36,6 +37,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
         val previousMode = controller.mode
         try {
             verifyRemovalStatusMapping()
+            verifyDiscoveryProviderIsolation()
             controller.disconnect()
             controller.setMode(arguments.getString("mode", "TCP"))
             val nsd = arguments.getString("nsd") == "true"
@@ -233,6 +235,36 @@ class DriverSmokeInstrumentation : Instrumentation() {
             if (bound) targetContext.unbindService(connection)
         }
         finish(resultCode, results)
+    }
+
+    private fun verifyDiscoveryProviderIsolation() {
+        val expected = listOf(DeviceInfo("fixture:reader", "Fixture reader", "Injected discovery"))
+        val completed = CompletableFuture<Unit>()
+        val owner = Any()
+        // This independent scan must not use NativeApp's mode, permissions or device list.
+        val discovery =
+            ReaderDiscovery(
+                targetContext,
+                mode = { "CLASSIC" },
+                permissions = { emptyArray() },
+                listDevices = { expected },
+                log = {},
+            )
+        try {
+            discovery.start(owner) { completed.completeExceptionally(it) }
+            Handler(Looper.getMainLooper()).post {
+                if (discovery.devices.value == expected) completed.complete(Unit)
+                else
+                    completed.completeExceptionally(
+                        IllegalStateException(
+                            "Discovery used a global controller instead of injected providers"
+                        )
+                    )
+            }
+            completed.get(5, TimeUnit.SECONDS)
+        } finally {
+            discovery.stop(owner)
+        }
     }
 
     private fun verifyRemovalStatusMapping() {

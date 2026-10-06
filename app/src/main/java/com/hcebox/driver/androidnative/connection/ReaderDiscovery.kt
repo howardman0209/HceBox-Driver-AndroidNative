@@ -9,14 +9,18 @@ import android.os.Looper
 import android.os.ParcelUuid
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.driver.androidnative.connection.tcp.TcpDiscovery
-import com.hcebox.driver.androidnative.nativeController
-import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.reader.protocol.BluetoothContract
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Shared scan owner for UI and AIDL callers; BLE observations expire after 20 seconds. */
 @SuppressLint("MissingPermission")
-class ReaderDiscovery(private val context: Context) {
+class ReaderDiscovery(
+    private val context: Context,
+    private val mode: () -> String,
+    private val permissions: () -> Array<String>,
+    private val listDevices: () -> List<DeviceInfo>,
+    private val log: (String) -> Unit,
+) {
     val devices = MutableStateFlow<List<DeviceInfo>>(emptyList())
     private val handler = Handler(Looper.getMainLooper())
     private val owners = mutableMapOf<Any, (Throwable) -> Unit>()
@@ -24,8 +28,8 @@ class ReaderDiscovery(private val context: Context) {
     val tcp =
         TcpDiscovery(
             context,
-            { devices.value = context.nativeController.devices() },
-            { context.nativeController.log(it) },
+            { devices.value = listDevices() },
+            { log(it) },
         )
     private var scanner: BluetoothLeScanner? = null
     private var generation = 0L
@@ -35,12 +39,7 @@ class ReaderDiscovery(private val context: Context) {
         object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 handler.post {
-                    if (
-                        generation != token ||
-                            scanner == null ||
-                            context.nativeController.mode != "BLE"
-                    )
-                        return@post
+                    if (generation != token || scanner == null || mode() != "BLE") return@post
                     val device =
                         DeviceInfo(
                             "BLE:${result.device.address}",
@@ -76,18 +75,18 @@ class ReaderDiscovery(private val context: Context) {
             owners[owner] = failure
             if (scanner != null || tcp.isRunning) return@post
             try {
-                if (missingPermissions(context).isNotEmpty())
+                if (permissions().isNotEmpty())
                     throw SecurityException("Transport permissions required")
-                if (context.nativeController.mode == "TCP") {
-                    devices.value = context.nativeController.devices()
+                if (mode() == "TCP") {
+                    devices.value = listDevices()
                     tcp.start(::failed)
                     return@post
                 }
-                if (context.nativeController.mode != "BLE") {
-                    devices.value = context.nativeController.devices()
+                if (mode() != "BLE") {
+                    devices.value = listDevices()
                     return@post
                 }
-                if (missingPermissions(context).isNotEmpty())
+                if (permissions().isNotEmpty())
                     throw SecurityException("Bluetooth permissions required")
                 observed.clear()
                 devices.value = emptyList()
@@ -125,8 +124,7 @@ class ReaderDiscovery(private val context: Context) {
 
     fun refresh() {
         handler.post {
-            if (context.nativeController.mode != "BLE")
-                devices.value = context.nativeController.devices()
+            if (mode() != "BLE") devices.value = listDevices()
         }
     }
 

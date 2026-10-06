@@ -9,7 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +42,7 @@ fun DriverApp(controller: NativeController) {
     val devices by controller.discovery.devices.collectAsStateWithLifecycle()
     val notes by controller.notes.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf("Readers") }
+    val scroll = remember(page) { ScrollState(0) }
     var mode by remember { mutableStateOf(controller.mode) }
     var permitted by remember { mutableStateOf(missingPermissions(context).isEmpty()) }
     var busy by remember { mutableStateOf(false) }
@@ -68,7 +69,11 @@ fun DriverApp(controller: NativeController) {
     DisposableEffect(page, mode, permitted, refresh) {
         if (page == "Readers" && permitted) {
             scanning = mode != "CLASSIC"
-            controller.discovery.start(owner) { error = controller.failure(it); scanning = false }
+            val scanMode = mode
+            controller.discovery.start(owner) {
+                // A transport switch retires the previous scan; it is not a connection failure.
+                if (controller.mode == scanMode) { error = controller.failure(it); scanning = false }
+            }
         }
         onDispose { controller.discovery.stop(owner); scanning = false }
     }
@@ -97,7 +102,7 @@ fun DriverApp(controller: NativeController) {
     BackHandler(enabled = page != "Readers") { back() }
     Scaffold(modifier = Modifier.imePadding(), topBar = {
         TopAppBar(title = { Text(if (page == "Readers") "Native Driver" else page) },
-            navigationIcon = { if (page in listOf("Reader details", "Manual connection")) TextButton(onClick = { back() }) { Text("Back") } })
+            navigationIcon = { if (page in listOf("Reader details", "Manual connection")) IconButton(onClick = { back() }) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Back") } })
     }, bottomBar = {
         NavigationBar {
             listOf("Readers", "Settings", "Diagnostics").forEachIndexed { index, destination ->
@@ -107,7 +112,7 @@ fun DriverApp(controller: NativeController) {
             }
         }
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(scroll).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             val visibleError = error ?: state.error
             if (visibleError != null && page != "Diagnostics") {
@@ -185,7 +190,8 @@ fun DriverApp(controller: NativeController) {
 
 @Composable
 private fun ReaderRow(name: String, detail: String, enabled: Boolean, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)) {
+    Card(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(name, style = MaterialTheme.typography.titleMedium)
             Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -195,7 +201,7 @@ private fun ReaderRow(name: String, detail: String, enabled: Boolean, onClick: (
 
 @Composable
 private fun StatusCard(label: String, value: String) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) { Column(Modifier.padding(16.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.titleMedium)
     } }

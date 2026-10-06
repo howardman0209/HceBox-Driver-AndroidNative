@@ -24,17 +24,26 @@ new Git submodule, or vendor SDK is involved.
 
 ## Operation
 
-- TCP: tap Find readers on network, select a discovered Reader, then Connect.
-  NSD resolves its actual port and IPv4/IPv6 addresses; no manual setup is needed.
-  Hostname/IP and port remain an optional fallback (default 35965). Editing
-  fallback fields clears the selected discovered device so Connect uses manual
-  input. Manual endpoints are listed without claiming reachability.
-- Classic: choose CLASSIC, grant permissions, pair through system settings,
-  list bonded devices, and choose the reader device. Service compatibility is
-  verified on connection through the fixed RFCOMM UUID and protocol handshake.
-- BLE: choose BLE, grant permissions, scan for the fixed reader service UUID,
-  choose a reader, then Connect. MTU negotiation can fall back to 23; CCCD
-  indication subscription finishes before HELLO.
+Bottom navigation separates Readers, Settings and Diagnostics. The blue Material 3
+palette follows system light/dark mode. Detailed logs stay in Diagnostics, with
+Copy/Clear actions; regular screens show actionable connection errors.
+
+- TCP: choose TCP on Readers; discovery starts automatically. Tap a discovered
+  Reader to connect and open its details. NSD resolves the actual port and
+  IPv4/IPv6 addresses. Manual connection opens a separate hostname/IP and port
+  form (default 35965); saved manual endpoints do not claim reachability.
+- Classic: choose Classic, allow access if requested, and pair through system
+  settings. Tap a paired device to connect; service compatibility is verified
+  through the fixed RFCOMM UUID and protocol handshake.
+- BLE: choose BLE, allow access, and tap a discovered reader. MTU negotiation can
+  fall back to 23; CCCD indication subscription finishes before HELLO.
+
+Reader details show connection/card/use status. Back and bottom navigation
+preserve the connection; Disconnect closes it. Unexpected disconnection offers
+Reconnect without automatic retry. Settings contain pairing and HceBox guidance.
+SetupActivity is a transparent, permission-only entry point shared with HceBox,
+following ACS/FEITIAN. Notification permission is optional and its denial does
+not change transport readiness. Only selected transport permissions are required.
 
 Settings and endpoint identity persist; live selection and connections do not.
 While connected, the service uses a connected-device foreground notification

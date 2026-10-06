@@ -15,3 +15,7 @@ fun missingPermissions(context: Context): Array<String> {
     }
     return required.filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray()
 }
+
+/** Optional setup grant for visible connection notifications; never affects readiness. */
+fun optionalSetupPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= 33)
+    arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()

@@ -17,7 +17,6 @@ import com.hcebox.reader.protocol.ReaderClient
 import com.hcebox.reader.protocol.ReaderFailure
 import com.hcebox.reader.protocol.Status
 import com.hcebox.reader.protocol.StreamChannel
-import kotlinx.coroutines.flow.MutableStateFlow
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.UUID
@@ -26,10 +25,15 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Process-wide connection owner shared by the workbench and bound service. */
 class NativeController(context: Context) {
-    data class View(val device: DeviceInfo? = null, val status: Status = Status(), val error: DriverError? = null)
+    data class View(
+        val device: DeviceInfo? = null,
+        val status: Status = Status(),
+        val error: DriverError? = null,
+    )
 
     val view = MutableStateFlow(View())
     val notes = MutableStateFlow("Ready")
@@ -39,16 +43,29 @@ class NativeController(context: Context) {
     private val connectGate = Semaphore(1)
     private var generation = 0L
     private var client: ReaderClient? = null
-    private val workers = Executors.newCachedThreadPool { Thread(it, "NativeConnect").apply { isDaemon = true } }
-    private val prefs get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
-    val mode get() = prefs.getString("mode", "TCP") ?: "TCP"
+    private val workers = Executors.newCachedThreadPool {
+        Thread(it, "NativeConnect").apply { isDaemon = true }
+    }
+    private val prefs
+        get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
+
+    val mode
+        get() = prefs.getString("mode", "TCP") ?: "TCP"
+
     fun setMode(value: String) {
-        require(value in listOf("TCP", "CLASSIC", "BLE")); check(view.value.device == null)
-        disconnect(); discovery.reset(); prefs.edit { putString("mode", value) }
+        require(value in listOf("TCP", "CLASSIC", "BLE"))
+        check(view.value.device == null)
+        disconnect()
+        discovery.reset()
+        prefs.edit { putString("mode", value) }
     }
 
-    val host get() = prefs.getString("host", "") ?: ""
-    val port get() = prefs.getInt("port", 35965)
+    val host
+        get() = prefs.getString("host", "") ?: ""
+
+    val port
+        get() = prefs.getInt("port", 35965)
+
     fun configure(host: String, port: Int) {
         require(host.isNotBlank() && port in 1..65535) { "Valid host and port required" }
         check(view.value.device == null) { "Disconnect before editing endpoint" }
@@ -63,22 +80,38 @@ class NativeController(context: Context) {
     fun devices(): List<DeviceInfo> {
         if (mode == "BLE") return discovery.devices.value
         if (mode != "TCP") {
-            if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
+            if (missingPermissions(context).isNotEmpty())
+                throw SecurityException("Bluetooth permissions required")
             val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             check(adapter?.isEnabled == true) { "Bluetooth disabled" }
-            return adapter.bondedDevices.map { DeviceInfo("CLASSIC:${it.address}", it.name ?: "Bluetooth device", "Classic bonded device") }
+            return adapter.bondedDevices.map {
+                DeviceInfo(
+                    "CLASSIC:${it.address}",
+                    it.name ?: "Bluetooth device",
+                    "Classic bonded device",
+                )
+            }
         }
-        return (listOfNotNull(manualEndpoint()?.device) + discovery.tcp.endpoints().map { it.device }).distinctBy { it.deviceId }
+        return (listOfNotNull(manualEndpoint()?.device) +
+                discovery.tcp.endpoints().map { it.device })
+            .distinctBy { it.deviceId }
     }
 
     private fun manualEndpoint(): TcpEndpoint? {
         if (host.isBlank()) return null
-        val id = prefs.getString("endpoint", null) ?: UUID.randomUUID().toString().also { prefs.edit { putString("endpoint", it) } }
-        return TcpEndpoint(DeviceInfo("TCP:$id", "Manual Android NFC Reader", "TCP $host:$port (manual)"), listOf(host), port)
+        val id =
+            prefs.getString("endpoint", null)
+                ?: UUID.randomUUID().toString().also { prefs.edit { putString("endpoint", it) } }
+        return TcpEndpoint(
+            DeviceInfo("TCP:$id", "Manual Android NFC Reader", "TCP $host:$port (manual)"),
+            listOf(host),
+            port,
+        )
     }
 
     fun log(message: String) {
-        Log.d("NativeDriver", message); notes.value = (message + "\n" + notes.value).take(3000)
+        Log.d("NativeDriver", message)
+        notes.value = (message + "\n" + notes.value).take(3000)
     }
 
     @android.annotation.SuppressLint("MissingPermission")
@@ -93,88 +126,162 @@ class NativeController(context: Context) {
                 if (client != null) throw ReaderFailure(6, "Another device connected")
                 token = ++generation
             }
-            val device = devices().firstOrNull { it.deviceId == id } ?: throw IllegalArgumentException("Device not found")
-            if (missingPermissions(context).isNotEmpty()) throw SecurityException("Transport permissions required")
+            val device =
+                devices().firstOrNull { it.deviceId == id }
+                    ?: throw IllegalArgumentException("Device not found")
+            if (missingPermissions(context).isNotEmpty())
+                throw SecurityException("Transport permissions required")
             val selectedMode = mode
-            val manual = if (selectedMode == "TCP" && !device.deviceId.startsWith("TCP:NSD:")) manualEndpoint()?.takeIf { it.device.deviceId == device.deviceId } else null
-            val expectedInstallationId = if (device.deviceId.startsWith("TCP:NSD:")) device.deviceId.removePrefix("TCP:NSD:") else null
+            val manual =
+                if (selectedMode == "TCP" && !device.deviceId.startsWith("TCP:NSD:"))
+                    manualEndpoint()?.takeIf { it.device.deviceId == device.deviceId }
+                else null
+            val expectedInstallationId =
+                if (device.deviceId.startsWith("TCP:NSD:")) device.deviceId.removePrefix("TCP:NSD:")
+                else null
             val socket = java.util.concurrent.atomic.AtomicReference<Socket?>()
-            val bluetooth = if (selectedMode == "CLASSIC") {
-                if (missingPermissions(context).isNotEmpty()) throw SecurityException("Bluetooth permissions required")
-                val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: error("Bluetooth unavailable")
-                adapter.cancelDiscovery()
-                adapter.getRemoteDevice(device.deviceId.removePrefix("CLASSIC:")).createRfcommSocketToServiceRecord(BluetoothContract.CLASSIC)
-            } else null
-            val future = workers.submit<MessageChannel> {
-                try {
-                    if (selectedMode == "BLE") return@submit BleClient.connect(context, device.deviceId.removePrefix("BLE:"), deadline, ::log)
-                    if (bluetooth != null) {
-                        bluetooth.connect(); deadline.remaining()
-                        return@submit StreamChannel(bluetooth.inputStream, bluetooth.outputStream) { bluetooth.close() }
-                    }
-                    val endpoint = if (device.deviceId.startsWith("TCP:NSD:")) discovery.tcp.refresh(device.deviceId, deadline)
-                    else manual ?: throw IllegalArgumentException("TCP endpoint not found")
-                    var lastError: java.io.IOException? = null
-                    for (host in endpoint.hosts) for (address in java.net.InetAddress.getAllByName(host)) {
-                        deadline.remaining()
-                        val connection = endpoint.network?.socketFactory?.createSocket() ?: Socket()
-                        socket.set(connection)
-                        try {
-                            if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("Connection cancelled")
-                            connection.connect(InetSocketAddress(address, endpoint.port), deadline.remaining())
-                            return@submit StreamChannel(connection)
-                        } catch (error: java.io.IOException) {
-                            connection.close(); lastError = error
+            val bluetooth =
+                if (selectedMode == "CLASSIC") {
+                    if (missingPermissions(context).isNotEmpty())
+                        throw SecurityException("Bluetooth permissions required")
+                    val adapter =
+                        context.getSystemService(BluetoothManager::class.java)?.adapter
+                            ?: error("Bluetooth unavailable")
+                    adapter.cancelDiscovery()
+                    adapter
+                        .getRemoteDevice(device.deviceId.removePrefix("CLASSIC:"))
+                        .createRfcommSocketToServiceRecord(BluetoothContract.CLASSIC)
+                } else null
+            val future =
+                workers.submit<MessageChannel> {
+                    try {
+                        if (selectedMode == "BLE")
+                            return@submit BleClient.connect(
+                                context,
+                                device.deviceId.removePrefix("BLE:"),
+                                deadline,
+                                ::log,
+                            )
+                        if (bluetooth != null) {
+                            bluetooth.connect()
+                            deadline.remaining()
+                            return@submit StreamChannel(
+                                bluetooth.inputStream,
+                                bluetooth.outputStream,
+                            ) {
+                                bluetooth.close()
+                            }
                         }
+                        val endpoint =
+                            if (device.deviceId.startsWith("TCP:NSD:"))
+                                discovery.tcp.refresh(device.deviceId, deadline)
+                            else manual ?: throw IllegalArgumentException("TCP endpoint not found")
+                        var lastError: java.io.IOException? = null
+                        for (host in endpoint.hosts) for (address in
+                            java.net.InetAddress.getAllByName(host)) {
+                            deadline.remaining()
+                            val connection =
+                                endpoint.network?.socketFactory?.createSocket() ?: Socket()
+                            socket.set(connection)
+                            try {
+                                if (Thread.currentThread().isInterrupted)
+                                    throw java.io.InterruptedIOException("Connection cancelled")
+                                connection.connect(
+                                    InetSocketAddress(address, endpoint.port),
+                                    deadline.remaining(),
+                                )
+                                return@submit StreamChannel(connection)
+                            } catch (error: java.io.IOException) {
+                                connection.close()
+                                lastError = error
+                            }
+                        }
+                        throw lastError ?: java.io.IOException("TCP endpoint has no usable address")
+                    } catch (error: Throwable) {
+                        socket.get()?.close()
+                        runCatching { bluetooth?.close() }
+                        throw error
                     }
-                    throw lastError ?: java.io.IOException("TCP endpoint has no usable address")
-                } catch (error: Throwable) {
-                    socket.get()?.close(); runCatching { bluetooth?.close() }; throw error
                 }
-            }
-            val channel = try {
-                future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS)
-            } catch (error: Exception) {
-                socket.get()?.close(); runCatching { bluetooth?.close() }; future.cancel(true); throw error
-            }
-            candidate = ReaderClient(channel, { status ->
-                synchronized(lock) {
-                    if (generation == token && view.value.device != null) {
-                        if (status.lastError != 0 && status.lastError != view.value.status.lastError) log("Reader status error=${cardError(status.lastError).code}")
-                        view.value = view.value.copy(status = status)
-                    }
+            val channel =
+                try {
+                    future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS)
+                } catch (error: Exception) {
+                    socket.get()?.close()
+                    runCatching { bluetooth?.close() }
+                    future.cancel(true)
+                    throw error
                 }
-            }, { error ->
-                synchronized(lock) {
-                    if (generation == token) {
-                        client = null; view.value = View(error = error?.let(::failure)); log("Disconnected: ${if (error == null) "requested" else error.message ?: error.javaClass.simpleName}")
-                    }
-                }
-            }, ::log)
+            candidate =
+                ReaderClient(
+                    channel,
+                    { status ->
+                        synchronized(lock) {
+                            if (generation == token && view.value.device != null) {
+                                if (
+                                    status.lastError != 0 &&
+                                        status.lastError != view.value.status.lastError
+                                )
+                                    log("Reader status error=${cardError(status.lastError).code}")
+                                view.value = view.value.copy(status = status)
+                            }
+                        }
+                    },
+                    { error ->
+                        synchronized(lock) {
+                            if (generation == token) {
+                                client = null
+                                view.value = View(error = error?.let(::failure))
+                                log(
+                                    "Disconnected: ${if (error == null) "requested" else error.message ?: error.javaClass.simpleName}"
+                                )
+                            }
+                        }
+                    },
+                    ::log,
+                )
             candidate.handshake(deadline)
-            check(expectedInstallationId == null || candidate.hello?.installationId == expectedInstallationId) { "Reader identity differs from NSD announcement" }
+            check(
+                expectedInstallationId == null ||
+                    candidate.hello?.installationId == expectedInstallationId
+            ) {
+                "Reader identity differs from NSD announcement"
+            }
             synchronized(lock) {
                 deadline.remaining()
-                if (token != generation || !candidate.isOpen()) throw ReaderFailure(5, "Connection cancelled")
-                client = candidate; view.value = View(device, candidate.status)
+                if (token != generation || !candidate.isOpen())
+                    throw ReaderFailure(5, "Connection cancelled")
+                client = candidate
+                view.value = View(device, candidate.status)
             }
             log("Connected ${device.detail}")
         } catch (error: Throwable) {
-            candidate?.close(); throw error
+            candidate?.close()
+            throw error
         } finally {
             connectGate.release()
         }
     }
 
     fun disconnect() {
-        val old = synchronized(lock) { generation++; client.also { client = null; view.value = View() } }
-        old?.close(); log("Disconnected")
+        val old =
+            synchronized(lock) {
+                generation++
+                client.also {
+                    client = null
+                    view.value = View()
+                }
+            }
+        old?.close()
+        log("Disconnected")
     }
 
-    private fun connection(id: String?, slot: Int): ReaderClient = synchronized(lock) {
-        if (slot != 0 || view.value.device?.deviceId != id || client == null) throw ReaderFailure(8, "Reader not connected")
-        client!!
-    }
+    private fun connection(id: String?, slot: Int): ReaderClient =
+        synchronized(lock) {
+            if (slot != 0 || view.value.device?.deviceId != id || client == null)
+                throw ReaderFailure(8, "Reader not connected")
+            client!!
+        }
 
     fun select(id: String?, slot: Int) {
         connection(id, slot).select()
@@ -190,32 +297,61 @@ class NativeController(context: Context) {
         return connection(id, slot).transmit(command, deadline)
     }
 
-    fun reader(): ReaderInfo? = view.value.device?.let { ReaderInfo(it.deviceId, 0, "Android Native NFC", "HceBox", "Android ISO-DEP", null) }
-    fun readerStatus(): ReaderStatus? = view.value.let { state -> state.device?.let { ReaderStatus(it.deviceId, 0, state.status.present, state.status.selected, state.status.lastError.takeIf { code -> code != 0 }?.let(::cardError)) } }
-    private fun cardError(code: Int) = DriverError(
-        when (code) {
-            1 -> CardReaderErrorCode.CARD_ABSENT; 2 -> CardReaderErrorCode.CARD_REMOVED
-            3 -> CardReaderErrorCode.TIMEOUT; 4 -> CardReaderErrorCode.UNSUPPORTED_APDU
-            6 -> CardReaderErrorCode.BUSY; 7 -> CardReaderErrorCode.READER_NOT_SELECTED
-            8 -> CardReaderErrorCode.SETUP_REQUIRED; else -> CardReaderErrorCode.TRANSPORT
-        }, if (code == 2) "Card removed" else "Reader error code=$code"
-    )
+    fun reader(): ReaderInfo? =
+        view.value.device?.let {
+            ReaderInfo(it.deviceId, 0, "Android Native NFC", "HceBox", "Android ISO-DEP", null)
+        }
+
+    fun readerStatus(): ReaderStatus? =
+        view.value.let { state ->
+            state.device?.let {
+                ReaderStatus(
+                    it.deviceId,
+                    0,
+                    state.status.present,
+                    state.status.selected,
+                    state.status.lastError.takeIf { code -> code != 0 }?.let(::cardError),
+                )
+            }
+        }
+
+    private fun cardError(code: Int) =
+        DriverError(
+            when (code) {
+                1 -> CardReaderErrorCode.CARD_ABSENT
+                2 -> CardReaderErrorCode.CARD_REMOVED
+                3 -> CardReaderErrorCode.TIMEOUT
+                4 -> CardReaderErrorCode.UNSUPPORTED_APDU
+                6 -> CardReaderErrorCode.BUSY
+                7 -> CardReaderErrorCode.READER_NOT_SELECTED
+                8 -> CardReaderErrorCode.SETUP_REQUIRED
+                else -> CardReaderErrorCode.TRANSPORT
+            },
+            if (code == 2) "Card removed" else "Reader error code=$code",
+        )
 
     fun failure(error: Throwable): DriverError {
         val cause = if (error is ExecutionException) error.cause ?: error else error
-        val code = when (cause) {
-            is ReaderFailure -> when (cause.code) {
-                1 -> CardReaderErrorCode.CARD_ABSENT; 2 -> CardReaderErrorCode.CARD_REMOVED
-                3 -> CardReaderErrorCode.TIMEOUT; 4 -> CardReaderErrorCode.UNSUPPORTED_APDU
-                6 -> CardReaderErrorCode.BUSY; 7 -> CardReaderErrorCode.READER_NOT_SELECTED
-                8 -> CardReaderErrorCode.SETUP_REQUIRED; else -> CardReaderErrorCode.TRANSPORT
-            }
+        val code =
+            when (cause) {
+                is ReaderFailure ->
+                    when (cause.code) {
+                        1 -> CardReaderErrorCode.CARD_ABSENT
+                        2 -> CardReaderErrorCode.CARD_REMOVED
+                        3 -> CardReaderErrorCode.TIMEOUT
+                        4 -> CardReaderErrorCode.UNSUPPORTED_APDU
+                        6 -> CardReaderErrorCode.BUSY
+                        7 -> CardReaderErrorCode.READER_NOT_SELECTED
+                        8 -> CardReaderErrorCode.SETUP_REQUIRED
+                        else -> CardReaderErrorCode.TRANSPORT
+                    }
 
-            is TimeoutException, is java.net.SocketTimeoutException -> CardReaderErrorCode.TIMEOUT
-            is SecurityException -> CardReaderErrorCode.SETUP_REQUIRED
-            is IllegalArgumentException -> CardReaderErrorCode.DEVICE_NOT_FOUND
-            else -> CardReaderErrorCode.TRANSPORT
-        }
+                is TimeoutException,
+                is java.net.SocketTimeoutException -> CardReaderErrorCode.TIMEOUT
+                is SecurityException -> CardReaderErrorCode.SETUP_REQUIRED
+                is IllegalArgumentException -> CardReaderErrorCode.DEVICE_NOT_FOUND
+                else -> CardReaderErrorCode.TRANSPORT
+            }
         log("Operation failed code=$code reason=${cause.message}")
         return DriverError(code, cause.message)
     }

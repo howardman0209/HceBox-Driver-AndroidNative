@@ -109,6 +109,19 @@ class DriverSmokeInstrumentation : Instrumentation() {
             check(!driver.getReaderStatus(device.deviceId, 0)!!.isSelected)
             driver.disconnectDevice(device.deviceId)
             check(driver.listReaders().isEmpty() && driver.listConnectedDevices().isEmpty())
+            if (nsd) {
+                // Reconnect without scanning again to exercise retained NSD identity.
+                repeat(2) {
+                    check(controller.devices().any { it.deviceId == device.deviceId }) { "NSD device must remain selectable" }
+                    val reconnected = driver.connectDevice(device.deviceId, 5000)
+                    check(reconnected.isSuccess) { "NSD reconnect ${it + 1} failed: ${reconnected.error}" }
+                    check(driver.selectReader(device.deviceId, 0) == null) { "Select after NSD reconnect failed" }
+                    driver.unselectReader(device.deviceId, 0)
+                    driver.disconnectDevice(device.deviceId)
+                    check(driver.listReaders().isEmpty() && driver.listConnectedDevices().isEmpty())
+                }
+                results.putString("reconnect", "Two NSD reconnects without rediscovery passed")
+            }
             driver.unregisterDriverCallback(updates)
             val detail = results.getString("idleRemoval") ?: results.getString("apdu") ?: results.getString("card") ?: "No-card mapping tested"
             results.putString("stream", "AIDL discovery/connect/callback/select/transmit/unselect/disconnect passed via ${controller.mode}${if (nsd) " NSD" else ""}\n$detail\n")

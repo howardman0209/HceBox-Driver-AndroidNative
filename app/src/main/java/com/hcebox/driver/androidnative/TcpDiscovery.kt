@@ -29,6 +29,7 @@ class TcpDiscovery(context: Context, private val changed: () -> Unit, private va
     private val handler = Handler(Looper.getMainLooper())
     private val executor = java.util.concurrent.Executor { handler.post(it) }
     private val multicast = context.getSystemService(WifiManager::class.java)?.createMulticastLock("NativeDriverNsd")?.apply { setReferenceCounted(false) }
+    // Resolve results can rewrite the service type; retain discovery input for every refresh.
     private data class Record(val source: NsdServiceInfo, val endpoint: TcpEndpoint)
     private val records = ConcurrentHashMap<String, Record>()
     private val liveServices = mutableSetOf<String>()
@@ -90,8 +91,10 @@ class TcpDiscovery(context: Context, private val changed: () -> Unit, private va
         val task = queue.pollFirst() ?: return
         if (task.result.isCancelled || (task.token != null && task.token != generation)) { task.result.cancel(false); pump(); return }
         resolving = true
+        log("NSD resolve name=${task.info.serviceName} type=${task.info.serviceType}")
         val callback = object : NsdManager.ResolveListener {
             override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) { handler.post {
+                log("NSD resolve failed name=${task.info.serviceName} type=${task.info.serviceType} code=$errorCode")
                 resolving = false; task.result.completeExceptionally(IllegalStateException("NSD resolve failed code=$errorCode")); pump()
             } }
             override fun onServiceResolved(info: NsdServiceInfo) { handler.post {
@@ -100,7 +103,7 @@ class TcpDiscovery(context: Context, private val changed: () -> Unit, private va
                     try {
                         val endpoint = parse(info) ?: throw IllegalArgumentException("Incompatible NSD metadata")
                         check(task.expectedId == null || endpoint.installationId == task.expectedId) { "NSD identity changed" }
-                        if ((task.token == null && records.containsKey(task.sourceKey)) || (task.token != null && listener != null)) { records[task.sourceKey] = Record(info, endpoint); changed() }
+                        if ((task.token == null && records.containsKey(task.sourceKey)) || (task.token != null && listener != null)) { records[task.sourceKey] = Record(task.info, endpoint); changed() }
                         task.result.complete(endpoint)
                     } catch (error: Exception) { task.result.completeExceptionally(error); log("NSD resolve ignored: ${error.message}") }
                 } else task.result.cancel(false)
@@ -123,7 +126,7 @@ class TcpDiscovery(context: Context, private val changed: () -> Unit, private va
             override fun onServiceUpdated(updated: NsdServiceInfo) { handler.post {
                 if (token != generation || listener == null) return@post
                 val endpoint = parse(updated)
-                if (endpoint != null) { records[key] = Record(updated, endpoint); changed(); log("NSD resolved ${endpoint.device.detail}") }
+                if (endpoint != null) { records[key] = Record(info, endpoint); changed(); log("NSD resolved ${endpoint.device.detail}") }
                 else { records.remove(key); changed() }
             } }
         }

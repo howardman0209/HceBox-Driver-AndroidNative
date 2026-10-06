@@ -48,9 +48,12 @@ class DriverSmokeInstrumentation : Instrumentation() {
             val device = found.get(10, TimeUnit.SECONDS)
             driver.stopDiscovery(callback)
             val changes = CountDownLatch(1)
+            val removal = CountDownLatch(1)
             val updates = object : IDriverCallback.Stub() {
                 override fun onReadersChanged() { if (driver.listReaders().isNotEmpty()) changes.countDown() }
-                override fun onReaderStatusChanged(status: ReaderStatus) {}
+                override fun onReaderStatusChanged(status: ReaderStatus) {
+                    if (!status.isCardPresent && status.isSelected && status.lastError?.code == CardReaderErrorCode.CARD_REMOVED) removal.countDown()
+                }
                 override fun onDeviceStatusChanged(status: DeviceStatus) {}
             }
             driver.registerDriverCallback(updates)
@@ -62,6 +65,22 @@ class DriverSmokeInstrumentation : Instrumentation() {
             check(driver.selectReader(device.deviceId, 0) == null) { "Select failed" }
             var status = driver.getReaderStatus(device.deviceId, 0)!!
             val testApdu = arguments.getString("apdu")
+            val idleRemoval = arguments.getString("idleRemoval") == "true"
+            check(!idleRemoval || testApdu == null) { "Idle removal test must not send an APDU" }
+            if (idleRemoval) {
+                val until = SystemClock.elapsedRealtime() + 10000
+                while (!status.isCardPresent && SystemClock.elapsedRealtime() < until) {
+                    Thread.sleep(100); status = driver.getReaderStatus(device.deviceId, 0)!!
+                }
+                check(status.isCardPresent) { "Present test card before idle-removal verification" }
+                val armed = SystemClock.elapsedRealtime()
+                sendStatus(0, Bundle().apply { putString("stream", "Idle removal test armed: remove the card now; no APDU will be sent.\n") })
+                check(removal.await(45, TimeUnit.SECONDS)) { "No CARD_REMOVED callback within 45 seconds" }
+                status = driver.getReaderStatus(device.deviceId, 0)!!
+                check(!status.isCardPresent && status.isSelected && status.lastError?.code == CardReaderErrorCode.CARD_REMOVED)
+                check(driver.listConnectedDevices().single().deviceId == device.deviceId) { "Removal must preserve the transport" }
+                results.putString("idleRemoval", "Idle CARD_REMOVED callback passed; selected/connected retained; no APDU sent. Wait since arming=${SystemClock.elapsedRealtime()-armed}ms (includes human removal time).")
+            }
             if (testApdu != null) {
                 val until = SystemClock.elapsedRealtime() + 10000
                 while (!status.isCardPresent && SystemClock.elapsedRealtime() < until) {
@@ -77,16 +96,16 @@ class DriverSmokeInstrumentation : Instrumentation() {
                 arguments.getString("expected")?.let { check(Apdu.hex(response) == it.uppercase()) { "Response differs from local baseline" } }
             }
             check(status.isSelected)
-            if (!status.isCardPresent) {
+            if (!status.isCardPresent && !idleRemoval) {
                 val result = driver.transmit(device.deviceId, 0, byteArrayOf(0, 0xA4.toByte(), 4, 0, 0), 2000)
                 check(result.error?.code == if (status.lastError?.code == CardReaderErrorCode.CARD_REMOVED) CardReaderErrorCode.CARD_REMOVED else CardReaderErrorCode.CARD_ABSENT) { "No-card mapping failed: $result" }
-            } else results.putString("card", "Present; no-card assertion skipped")
+            } else if (!idleRemoval) results.putString("card", "Present; no-card assertion skipped")
             driver.unselectReader(device.deviceId, 0)
             check(!driver.getReaderStatus(device.deviceId, 0)!!.isSelected)
             driver.disconnectDevice(device.deviceId)
             check(driver.listReaders().isEmpty() && driver.listConnectedDevices().isEmpty())
             driver.unregisterDriverCallback(updates)
-            val detail = results.getString("apdu") ?: results.getString("card") ?: "No-card mapping tested"
+            val detail = results.getString("idleRemoval") ?: results.getString("apdu") ?: results.getString("card") ?: "No-card mapping tested"
             results.putString("stream", "AIDL discovery/connect/callback/select/transmit/unselect/disconnect passed via ${controller.mode}\n$detail\n")
         } catch (error: Throwable) {
             results.putString("error", error.stackTraceToString()); resultCode = Activity.RESULT_CANCELED

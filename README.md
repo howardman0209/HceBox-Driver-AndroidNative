@@ -85,5 +85,11 @@ Protocol v2 STATUS includes an error reason. CARD_REMOVED is exposed through
 `ReaderStatus.lastError` with presence false, while device connection and selection
 remain active. New discovery clears the removal reason. Ordinary I/O failure
 and timeout retain distinct codes. Both APKs must use v2; the HceBox AIDL API is
-unchanged. API 37 reader callbacks can report idle removal; older readers report
-it only once NFC I/O detects loss.
+unchanged. API 37 reader callbacks can report idle removal; older readers also use a 200 ms idle presence monitor and retain NFC I/O
+loss detection as a fallback. OEM presence-update behavior still requires validation.
+
+For an idle-removal test, append `-e idleRemoval true` to the TCP/BLE instrumentation
+command. Place the card before starting. When the test reports it is armed,
+remove the card within 45 seconds. The test asserts the CARD_REMOVED callback,
+absence, retained selection/connection, and sends no APDU. Its reported wait
+includes human action time and is not a measured physical detection latency.

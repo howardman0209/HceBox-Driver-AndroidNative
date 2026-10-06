@@ -6,6 +6,7 @@ import android.content.*
 import android.os.*
 import com.hcebox.cardreader.api.*
 import com.hcebox.reader.protocol.Apdu
+import com.hcebox.reader.protocol.Status
 import java.util.concurrent.*
 
 /** Device smoke test using the platform instrumentation API without an extra test framework. */
@@ -21,19 +22,20 @@ class DriverSmokeInstrumentation : Instrumentation() {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) { service.complete(ICardReaderDriver.Stub.asInterface(binder)) }
             override fun onServiceDisconnected(name: ComponentName?) {}
         }
-        NativeController.init(targetContext)
-        val previousMode = NativeController.mode
+        val controller = targetContext.nativeController
+        val previousMode = controller.mode
         try {
-            NativeController.disconnect()
-            NativeController.setMode(arguments.getString("mode", "TCP"))
-            if (NativeController.mode == "TCP") NativeController.configure(arguments.getString("host", NativeController.host), 35965)
+            verifyRemovalStatusMapping()
+            controller.disconnect()
+            controller.setMode(arguments.getString("mode", "TCP"))
+            if (controller.mode == "TCP") controller.configure(arguments.getString("host", controller.host), 35965)
             bound = targetContext.bindService(Intent(targetContext, NativeDriverService::class.java), connection, Context.BIND_AUTO_CREATE)
             check(bound) { "Driver service binding failed" }
             val driver = service.get(5, TimeUnit.SECONDS)
             check(driver.driverInfo.apiVersion == CardReaderDriverContract.API_VERSION)
             check(driver.driverStatus.readiness == DriverReadiness.READY)
             val targetId = arguments.getString("deviceId")
-            check(NativeController.mode != "CLASSIC" || targetId != null) { "Classic smoke test requires explicit deviceId" }
+            check(controller.mode != "CLASSIC" || targetId != null) { "Classic smoke test requires explicit deviceId" }
             val found = CompletableFuture<DeviceInfo>()
             val callback = object : IDiscoveryCallback.Stub() {
                 override fun onDiscoveryStarted() {}
@@ -56,6 +58,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
             check(connected.isSuccess) { "Connect failed: ${connected.error}" }
             check(changes.await(5, TimeUnit.SECONDS)) { "Reader change callback missing" }
             check(driver.listReaders().single().slotIndex == 0)
+            check(controller.view.value.device?.deviceId == device.deviceId) { "Service and workbench must share the Application-owned controller" }
             check(driver.selectReader(device.deviceId, 0) == null) { "Select failed" }
             var status = driver.getReaderStatus(device.deviceId, 0)!!
             val testApdu = arguments.getString("apdu")
@@ -70,13 +73,13 @@ class DriverSmokeInstrumentation : Instrumentation() {
                 check(result.isSuccess) { "Real-card transmit failed: ${result.error}" }
                 val response = result.responseApdu!!
                 check(response.size >= 2)
-                results.putString("apdu", "mode=${NativeController.mode} elapsedMs=${SystemClock.elapsedRealtime()-started} response=${Apdu.hex(response)}")
+                results.putString("apdu", "mode=${controller.mode} elapsedMs=${SystemClock.elapsedRealtime()-started} response=${Apdu.hex(response)}")
                 arguments.getString("expected")?.let { check(Apdu.hex(response) == it.uppercase()) { "Response differs from local baseline" } }
             }
             check(status.isSelected)
             if (!status.isCardPresent) {
                 val result = driver.transmit(device.deviceId, 0, byteArrayOf(0, 0xA4.toByte(), 4, 0, 0), 2000)
-                check(result.error?.code == CardReaderErrorCode.CARD_ABSENT) { "No-card mapping failed: $result" }
+                check(result.error?.code == if (status.lastError?.code == CardReaderErrorCode.CARD_REMOVED) CardReaderErrorCode.CARD_REMOVED else CardReaderErrorCode.CARD_ABSENT) { "No-card mapping failed: $result" }
             } else results.putString("card", "Present; no-card assertion skipped")
             driver.unselectReader(device.deviceId, 0)
             check(!driver.getReaderStatus(device.deviceId, 0)!!.isSelected)
@@ -84,13 +87,26 @@ class DriverSmokeInstrumentation : Instrumentation() {
             check(driver.listReaders().isEmpty() && driver.listConnectedDevices().isEmpty())
             driver.unregisterDriverCallback(updates)
             val detail = results.getString("apdu") ?: results.getString("card") ?: "No-card mapping tested"
-            results.putString("stream", "AIDL discovery/connect/callback/select/transmit/unselect/disconnect passed via ${NativeController.mode}\n$detail\n")
+            results.putString("stream", "AIDL discovery/connect/callback/select/transmit/unselect/disconnect passed via ${controller.mode}\n$detail\n")
         } catch (error: Throwable) {
             results.putString("error", error.stackTraceToString()); resultCode = Activity.RESULT_CANCELED
         } finally {
-            NativeController.disconnect(); NativeController.setMode(previousMode)
+            controller.disconnect(); controller.setMode(previousMode)
             if (bound) targetContext.unbindService(connection)
         }
         finish(resultCode, results)
     }
+    private fun verifyRemovalStatusMapping() {
+        // Isolated fixture exercises the AIDL snapshot mapping without signalling a real reader.
+        val fixture = NativeController(targetContext)
+        val device = DeviceInfo("fixture", "Removal fixture", null)
+        for ((wire, expected) in listOf(2 to CardReaderErrorCode.CARD_REMOVED, 3 to CardReaderErrorCode.TIMEOUT, 5 to CardReaderErrorCode.TRANSPORT)) {
+            fixture.view.value = NativeController.View(device, Status(selected = true, lastError = wire))
+            val status = fixture.readerStatus()!!
+            check(!status.isCardPresent && status.isSelected && status.lastError?.code == expected)
+        }
+        fixture.view.value = NativeController.View(device, Status(1, true, true, false, 261))
+        check(fixture.readerStatus()!!.lastError == null) { "Fresh card must clear removal reason" }
+    }
+
 }

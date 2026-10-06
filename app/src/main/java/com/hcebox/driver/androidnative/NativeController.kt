@@ -12,18 +12,17 @@ import java.util.UUID
 import java.util.concurrent.*
 
 /** Process-wide connection owner shared by the workbench and bound service. */
-object NativeController {
+class NativeController(context: Context) {
     data class View(val device: DeviceInfo? = null, val status: Status = Status(), val error: DriverError? = null)
     val view = MutableStateFlow(View())
     val notes = MutableStateFlow("Ready")
-    private lateinit var context: Context
-    lateinit var discovery: ReaderDiscovery; private set
+    private val context = context.applicationContext
+    val discovery = ReaderDiscovery(this.context)
     private val lock = Any()
     private val connectGate = Semaphore(1)
     private var generation = 0L
     private var client: ReaderClient? = null
     private val workers = Executors.newCachedThreadPool { Thread(it, "NativeConnect").apply { isDaemon = true } }
-    fun init(value: Context) { synchronized(lock) { if (!::context.isInitialized) { context = value.applicationContext; discovery = ReaderDiscovery(context) } } }
     private val prefs get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
     val mode get() = prefs.getString("mode", "TCP") ?: "TCP"
     fun setMode(value: String) {
@@ -76,7 +75,7 @@ object NativeController {
             } else null
             val future = workers.submit<MessageChannel> {
                 try {
-                    if (selectedMode == "BLE") return@submit BleClient.connect(context, device.deviceId.removePrefix("BLE:"), deadline)
+                    if (selectedMode == "BLE") return@submit BleClient.connect(context, device.deviceId.removePrefix("BLE:"), deadline, ::log)
                     if (bluetooth != null) {
                         bluetooth.connect(); deadline.remaining()
                         return@submit StreamChannel(bluetooth.inputStream, bluetooth.outputStream, { bluetooth.close() })
@@ -90,7 +89,10 @@ object NativeController {
             val channel = try { future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS) }
                 catch (error: Exception) { socket.close(); runCatching { bluetooth?.close() }; future.cancel(true); throw error }
             candidate = ReaderClient(channel, { status -> synchronized(lock) {
-                if (generation == token && view.value.device != null) view.value = view.value.copy(status = status)
+                if (generation == token && view.value.device != null) {
+                    if (status.lastError != 0 && status.lastError != view.value.status.lastError) log("Reader status error=${cardError(status.lastError).code}")
+                    view.value = view.value.copy(status = status)
+                }
             } }, { error -> synchronized(lock) {
                 if (generation == token) { client = null; view.value = View(error = error?.let(::failure)); log("Disconnected: ${if (error == null) "requested" else error.message ?: error.javaClass.simpleName}") }
             } }, ::log)
@@ -120,7 +122,13 @@ object NativeController {
         return connection(id, slot).transmit(command, deadline)
     }
     fun reader(): ReaderInfo? = view.value.device?.let { ReaderInfo(it.deviceId, 0, "Android Native NFC", "HceBox", "Android ISO-DEP", null) }
-    fun readerStatus(): ReaderStatus? = view.value.let { state -> state.device?.let { ReaderStatus(it.deviceId, 0, state.status.present, state.status.selected, state.error) } }
+    fun readerStatus(): ReaderStatus? = view.value.let { state -> state.device?.let { ReaderStatus(it.deviceId, 0, state.status.present, state.status.selected, state.status.lastError.takeIf { code -> code != 0 }?.let(::cardError)) } }
+    private fun cardError(code: Int) = DriverError(when (code) {
+        1 -> CardReaderErrorCode.CARD_ABSENT; 2 -> CardReaderErrorCode.CARD_REMOVED
+        3 -> CardReaderErrorCode.TIMEOUT; 4 -> CardReaderErrorCode.UNSUPPORTED_APDU
+        6 -> CardReaderErrorCode.BUSY; 7 -> CardReaderErrorCode.READER_NOT_SELECTED
+        8 -> CardReaderErrorCode.SETUP_REQUIRED; else -> CardReaderErrorCode.TRANSPORT
+    }, if (code == 2) "Card removed" else "Reader error code=$code")
     fun failure(error: Throwable): DriverError {
         val cause = if (error is ExecutionException) error.cause ?: error else error
         val code = when (cause) {

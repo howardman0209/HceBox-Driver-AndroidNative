@@ -10,7 +10,7 @@ class SetupActivity : ComponentActivity() {
         setResult(if (missingPermissions(this).isEmpty()) RESULT_OK else RESULT_CANCELED); finish()
     }
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState); NativeController.init(this)
+        super.onCreate(savedInstanceState)
         val required = missingPermissions(this)
         if (required.isEmpty()) { setResult(RESULT_OK); finish() } else permissionRequest.launch(required)
     }

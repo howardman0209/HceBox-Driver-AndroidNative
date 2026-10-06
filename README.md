@@ -74,3 +74,16 @@ Re-present the card after each disconnected test session. Compare against the
 local workbench with `-e expected RESPONSE_HEX`; no retry is performed on failure.
 
 See the handoff for the exact completed checks and remaining hardware gates.
+
+## Tag loss and controller lifetime
+
+The process-owned `NativeApp.controller` is a class instance, shared by Activities
+and the service. There is no static Context/controller field and no lint
+suppression for StaticFieldLeak.
+
+Protocol v2 STATUS includes an error reason. CARD_REMOVED is exposed through
+`ReaderStatus.lastError` with presence false, while device connection and selection
+remain active. New discovery clears the removal reason. Ordinary I/O failure
+and timeout retain distinct codes. Both APKs must use v2; the HceBox AIDL API is
+unchanged. API 37 reader callbacks can report idle removal; older readers report
+it only once NFC I/O detects loss.

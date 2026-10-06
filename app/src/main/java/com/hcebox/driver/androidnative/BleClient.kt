@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference
 @SuppressLint("MissingPermission")
 @Suppress("DEPRECATION")
 object BleClient {
-    fun connect(context: Context, address: String, deadline: Deadline): MessageChannel {
+    fun connect(context: Context, address: String, deadline: Deadline, log: (String) -> Unit): MessageChannel {
         val adapter = context.getSystemService(BluetoothManager::class.java).adapter ?: error("Bluetooth unavailable")
         val gattRef = AtomicReference<BluetoothGatt?>()
         val ready = CompletableFuture<Unit>()
@@ -31,7 +31,7 @@ object BleClient {
         }, {
             ready.completeExceptionally(ReaderFailure(5, "BLE disconnected")); ack.get()?.completeExceptionally(ReaderFailure(5, "BLE disconnected"))
             gattRef.getAndSet(null)?.let { it.disconnect(); it.close() }
-        }, NativeController::log)
+        }, log)
         val callback = object : BluetoothGattCallback() {
             fun failed(message: String) { channel.fail(ReaderFailure(5, message)); ready.completeExceptionally(ReaderFailure(5, message)) }
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -62,7 +62,7 @@ object BleClient {
                 ready.complete(Unit)
             }
             override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-                NativeController.log("BLE negotiated MTU=$mtu status=$status")
+                log("BLE negotiated MTU=$mtu status=$status")
                 if (status == BluetoothGatt.GATT_SUCCESS) channel.mtu = mtu.coerceIn(23, 517)
                 subscribe(gatt)
             }

@@ -32,7 +32,7 @@ data class TcpEndpoint(
  * callbacks are fenced. Stop discovery before cancelling the owner scope.
  */
 @Suppress("DEPRECATION")
-class TcpDiscovery(
+class TcpScanner(
     context: Context,
     private val changed: () -> Unit,
     private val log: (String) -> Unit,

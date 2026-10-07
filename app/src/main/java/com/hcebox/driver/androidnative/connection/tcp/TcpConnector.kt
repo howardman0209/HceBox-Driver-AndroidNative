@@ -15,11 +15,11 @@ import java.net.Socket
 
 /** Manual endpoint plus NSD services; NSD entries are re-resolved within the connect deadline. */
 class TcpConnector(
-    private val discovery: TcpDiscovery,
+    private val scanner: TcpScanner,
     private val manualEndpoint: () -> TcpEndpoint?,
 ) : ReaderConnector {
     override fun devices(): List<DeviceInfo> =
-        (listOfNotNull(manualEndpoint()?.device) + discovery.endpoints().map { it.device })
+        (listOfNotNull(manualEndpoint()?.device) + scanner.endpoints().map { it.device })
             .distinctBy { it.deviceId }
 
     override fun open(
@@ -28,7 +28,7 @@ class TcpConnector(
         attempt: ConnectAttempt,
     ): MessageChannel {
         val endpoint =
-            if (device.deviceId.startsWith("TCP:NSD:")) discovery.refresh(device.deviceId, deadline)
+            if (device.deviceId.startsWith("TCP:NSD:")) scanner.refresh(device.deviceId, deadline)
             else
                 manualEndpoint()?.takeIf { it.device.deviceId == device.deviceId }
                     ?: throw IllegalArgumentException("TCP endpoint not found")

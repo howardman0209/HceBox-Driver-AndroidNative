@@ -4,7 +4,7 @@ import android.content.Context
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.driver.androidnative.connection.ble.BleScanner
 import com.hcebox.driver.androidnative.connection.classic.ClassicScanner
-import com.hcebox.driver.androidnative.connection.tcp.TcpDiscovery
+import com.hcebox.driver.androidnative.connection.tcp.TcpScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +25,7 @@ class ReaderDiscovery(
     val devices = MutableStateFlow<List<DeviceInfo>>(emptyList())
     private val owners = mutableMapOf<Any, (Throwable) -> Unit>()
     val tcp =
-        TcpDiscovery(
+        TcpScanner(
             context,
             { devices.value = listDevices() },
             { log(it) },

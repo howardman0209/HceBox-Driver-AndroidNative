@@ -167,3 +167,20 @@ Release builds enable R8 code optimization and resource shrinking with
 use platform defaults; Native Driver relies on the published AIDL consumer rules.
 Keep `app/build/outputs/mapping/release/` with each shipped APK for crash decoding.
 Debug remains unminified for development. Protocol artifact/wire versions are unchanged.
+
+## Asynchronous work
+
+ReaderDiscovery uses an Application-owned coroutine scope with queued
+`Dispatchers.Main` commands. Its BLE expiry Job uses `delay(1.seconds)` and is
+cancelled when discovery stops; generation checks reject stale callbacks. Shared
+UI/AIDL scan ownership and the 20-second observation lifetime are unchanged.
+Follow the HceBox [Android asynchronous conventions](https://github.com/howardman0209/HceBox/blob/main/platforms/android/ASYNC_CONVENTIONS.md)
+for subsequent migrations.
+
+Verification (2026-10-07): debug unit tests, debug/test APK builds, lint and the
+R8 release build passed. On SM-S9160 with SAH55, debug instrumentation verified
+queued Main commands, provider isolation, shared discovery ownership, TCP NSD
+with two reconnects and heartbeat, and BLE discovery/connect/heartbeat. BLE expiry
+start/stop logs confirmed Job cancellation on scan stop. These were no-card tests;
+real-card APDU/terminal acceptance and a runtime smoke of this updated release
+remain separate. Existing dependency/icon lint warnings remain.

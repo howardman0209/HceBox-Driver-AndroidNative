@@ -10,6 +10,10 @@ import com.hcebox.driver.androidnative.connection.ReaderDiscovery
 import com.hcebox.reader.protocol.codec.Apdu
 import com.hcebox.reader.protocol.model.Status
 import java.util.concurrent.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 /** Device smoke test using the platform instrumentation API without an extra test framework. */
 class DriverSmokeInstrumentation : Instrumentation() {
@@ -38,6 +42,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
         try {
             verifyRemovalStatusMapping()
             verifyDiscoveryProviderIsolation()
+            verifyQueuedDiscoveryOwnership()
             controller.disconnect()
             controller.setMode(arguments.getString("mode", "TCP"))
             val nsd = arguments.getString("nsd") == "true"
@@ -241,6 +246,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
         val expected = listOf(DeviceInfo("fixture:reader", "Fixture reader", "Injected discovery"))
         val completed = CompletableFuture<Unit>()
         val owner = Any()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         // This independent scan must not use NativeApp's mode, permissions or device list.
         val discovery =
             ReaderDiscovery(
@@ -249,6 +255,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
                 permissions = { emptyArray() },
                 listDevices = { expected },
                 log = {},
+                scope = scope,
             )
         try {
             discovery.start(owner) { completed.completeExceptionally(it) }
@@ -264,6 +271,50 @@ class DriverSmokeInstrumentation : Instrumentation() {
             completed.get(5, TimeUnit.SECONDS)
         } finally {
             discovery.stop(owner)
+            val stopped = CompletableFuture<Unit>()
+            Handler(Looper.getMainLooper()).post { stopped.complete(Unit) }
+            stopped.get(5, TimeUnit.SECONDS)
+            scope.cancel()
+        }
+    }
+
+    private fun verifyQueuedDiscoveryOwnership() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val failures = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val completed = CompletableFuture<Unit>()
+        var queried = false
+        val discovery =
+            ReaderDiscovery(
+                targetContext,
+                mode = { "CLASSIC" },
+                permissions = { emptyArray() },
+                listDevices = {
+                    queried = true
+                    emptyList()
+                },
+                log = {},
+                scope = scope,
+            )
+        val first = Any()
+        val second = Any()
+        try {
+            runOnMainSync {
+                discovery.start(first) { failures += "first" }
+                check(!queried) { "Discovery start must queue even when called on Main" }
+                discovery.start(second) { failures += "second" }
+                discovery.stop(first)
+                discovery.reset()
+                Handler(Looper.getMainLooper()).post {
+                    if (queried && failures == listOf("second")) completed.complete(Unit)
+                    else
+                        completed.completeExceptionally(
+                            IllegalStateException("Scan command order or ownership changed")
+                        )
+                }
+            }
+            completed.get(5, TimeUnit.SECONDS)
+        } finally {
+            scope.cancel()
         }
     }
 

@@ -26,6 +26,9 @@ import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Process-wide connection owner shared by the workbench and bound service. */
@@ -39,6 +42,8 @@ class NativeController(context: Context) {
     val view = MutableStateFlow(View())
     val notes = MutableStateFlow("Ready")
     private val context = context.applicationContext
+    // Application-owned controller work must outlive the UI; Main preserves queued scan commands.
+    private val discoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     val discovery =
         ReaderDiscovery(
             this.context,
@@ -46,6 +51,7 @@ class NativeController(context: Context) {
             permissions = { missingPermissions(this.context, mode) },
             listDevices = ::devices,
             log = ::log,
+            scope = discoveryScope,
         )
     private val lock = Any()
     private val connectGate = Semaphore(1)

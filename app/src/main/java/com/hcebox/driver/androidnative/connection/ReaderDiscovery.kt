@@ -4,15 +4,23 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.*
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelUuid
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.driver.androidnative.connection.tcp.TcpDiscovery
 import com.hcebox.reader.protocol.contract.BluetoothContract
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
-/** Shared scan owner for UI and AIDL callers; BLE observations expire after 20 seconds. */
+/**
+ * Shared scan owner for UI and AIDL callers; BLE observations expire after 20 seconds. The owner
+ * supplies a queued Main scope and must stop scans before cancelling it.
+ */
 @SuppressLint("MissingPermission")
 class ReaderDiscovery(
     private val context: Context,
@@ -20,9 +28,10 @@ class ReaderDiscovery(
     private val permissions: () -> Array<String>,
     private val listDevices: () -> List<DeviceInfo>,
     private val log: (String) -> Unit,
+    private val scope: CoroutineScope,
 ) {
     val devices = MutableStateFlow<List<DeviceInfo>>(emptyList())
-    private val handler = Handler(Looper.getMainLooper())
+    private var expiryJob: Job? = null
     private val owners = mutableMapOf<Any, (Throwable) -> Unit>()
     private val observed = mutableMapOf<String, Pair<DeviceInfo, Long>>()
     val tcp =
@@ -38,8 +47,8 @@ class ReaderDiscovery(
     private fun callback(token: Long) =
         object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                handler.post {
-                    if (generation != token || scanner == null || mode() != "BLE") return@post
+                scope.launch {
+                    if (generation != token || scanner == null || mode() != "BLE") return@launch
                     val device =
                         DeviceInfo(
                             "BLE:${result.device.address}",
@@ -52,39 +61,46 @@ class ReaderDiscovery(
             }
 
             override fun onScanFailed(errorCode: Int) {
-                handler.post {
+                scope.launch {
                     if (generation == token)
                         failed(IllegalStateException("BLE scan failed code=$errorCode"))
                 }
             }
         }
 
-    private val expiry =
-        object : Runnable {
-            override fun run() {
-                if (scanner == null) return
-                val now = android.os.SystemClock.elapsedRealtime()
-                observed.entries.removeAll { now - it.value.second > 20000 }
-                devices.value = observed.values.map { it.first }
-                handler.postDelayed(this, 1000)
+    private fun startExpiry(token: Long) {
+        expiryJob?.cancel()
+        expiryJob = scope.launch {
+            log("BLE expiry monitor started")
+            try {
+                while (isActive) {
+                    delay(1.seconds)
+                    if (generation != token || scanner == null) return@launch
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    observed.entries.removeAll { now - it.value.second > 20000 }
+                    devices.value = observed.values.map { it.first }
+                }
+            } finally {
+                log("BLE expiry monitor stopped")
             }
         }
+    }
 
     fun start(owner: Any, failure: (Throwable) -> Unit) {
-        handler.post {
+        scope.launch {
             owners[owner] = failure
-            if (scanner != null || tcp.isRunning) return@post
+            if (scanner != null || tcp.isRunning) return@launch
             try {
                 if (permissions().isNotEmpty())
                     throw SecurityException("Transport permissions required")
                 if (mode() == "TCP") {
                     devices.value = listDevices()
                     tcp.start(::failed)
-                    return@post
+                    return@launch
                 }
                 if (mode() != "BLE") {
                     devices.value = listDevices()
-                    return@post
+                    return@launch
                 }
                 if (permissions().isNotEmpty())
                     throw SecurityException("Bluetooth permissions required")
@@ -107,7 +123,9 @@ class ReaderDiscovery(
                     ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
                     callback,
                 )
-                handler.postDelayed(expiry, 1000)
+                startExpiry(generation)
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 failed(error)
             }
@@ -115,7 +133,7 @@ class ReaderDiscovery(
     }
 
     fun reset() {
-        handler.post {
+        scope.launch {
             failed(IllegalStateException("Discovery configuration changed"))
             observed.clear()
             devices.value = emptyList()
@@ -123,13 +141,13 @@ class ReaderDiscovery(
     }
 
     fun refresh() {
-        handler.post {
+        scope.launch {
             if (mode() != "BLE") devices.value = listDevices()
         }
     }
 
     fun stop(owner: Any) {
-        handler.post {
+        scope.launch {
             owners.remove(owner)
             if (owners.isEmpty()) stopScan()
         }
@@ -141,7 +159,8 @@ class ReaderDiscovery(
         activeCallback?.let { callback -> runCatching { scanner?.stopScan(callback) } }
         activeCallback = null
         scanner = null
-        handler.removeCallbacks(expiry)
+        expiryJob?.cancel()
+        expiryJob = null
     }
 
     private fun failed(error: Throwable) {

@@ -29,7 +29,7 @@ class NativeDriverService : Service() {
                 DriverInfo(
                     CardReaderDriverContract.API_VERSION,
                     "Android Native NFC Reader",
-                    "0.1.0",
+                    BuildConfig.VERSION_NAME,
                     "HceBox",
                     listOf("Android ISO-DEP Reader"),
                 )

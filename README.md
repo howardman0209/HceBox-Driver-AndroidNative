@@ -21,8 +21,11 @@ path. Prepare these artifacts in Maven Local before building:
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-Debug signing uses the standard debug keystore. APK:
-`app/build/outputs/apk/debug/app-debug.apk`. Driver builds only `:app`, consuming
+Debug and release use the ACS-style release signing properties:
+`HCEBOX_RELEASE_STORE_FILE`, `HCEBOX_RELEASE_STORE_PASSWORD`,
+`HCEBOX_RELEASE_KEY_ALIAS`, `HCEBOX_RELEASE_KEY_PASSWORD`. Supply them through
+user Gradle properties/CI, never commit signing material. APK output directory:
+`app/build/outputs/apk/debug/`. Driver builds only `:app`, consuming
 the pinned protocol JAR and published AIDL AAR. It has no sibling-project source
 paths, copied protocol code, vendor SDK or embedded protocol Gradle project.
 See the [protocol source map](https://github.com/howardman0209/HceBox-Reader-Android/blob/main/protocol/README.md).
@@ -81,7 +84,7 @@ separate-process integration.
 
 ```sh
 ./gradlew :app:assembleDebugAndroidTest
-adb -s DRIVER_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s DRIVER_SERIAL install -r "$DRIVER_APK"
 adb -s DRIVER_SERIAL install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s DRIVER_SERIAL shell am instrument -w -e mode TCP -e host READER_IP com.hcebox.driver.androidnative.test/com.hcebox.driver.androidnative.DriverSmokeInstrumentation
 adb -s DRIVER_SERIAL shell am instrument -w -e mode BLE com.hcebox.driver.androidnative.test/com.hcebox.driver.androidnative.DriverSmokeInstrumentation
@@ -144,3 +147,16 @@ a Context; permission rules take the selected transport explicitly.
 Launcher masters: `app/src/main/ic_launcher-source.png` (original generated
 1254px artwork) and `ic_launcher-playstore.png` (512px store export). Runtime icons
 are density-specific WebP resources, adaptive icons and a monochrome vector.
+
+## App version and signing
+
+App versionCode is `100` (`1_0_0`) and release versionName is `1.0.0`; debug
+adds `.debug`. Archive names follow `<applicationId>_1.0.0-100-YYYYMMDD`, with
+variant suffixes supplied by Android Gradle Plugin. Read the actual filename from
+`app/build/outputs/apk/<variant>/output-metadata.json`; for the smoke-test command,
+set `DRIVER_APK` to that generated debug APK path.
+
+Debug and release use the same configured release certificate. Existing installs
+signed by the old Android debug key cannot be updated in place with a different
+certificate; handle any reinstall/data reset explicitly. Protocol artifact `0.1.0`
+and wire protocol v2 remain independent of the app version.

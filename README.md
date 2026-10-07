@@ -136,8 +136,10 @@ older resolvers are serialized, with fresh resolution on connect.
 ## Source responsibilities
 
 Android entry points stay in the root package to preserve installed component
-names. `connection/` coordinates discovery and remote sessions; its `tcp/` and
-`ble/` packages own platform transport details. `setup/` contains permission rules.
+names. `connection/` coordinates discovery and remote sessions and defines
+`ConnectionMode`, `ReaderConnector` and `ReaderScanner`; its `tcp/`, `ble/` and
+`classic/` packages each provide one mode's connector and scanner plus their
+platform transport details. `setup/` contains permission rules.
 `ui/` owns navigation, `ui/screens/` renders individual pages, `ui/components/`
 contains reusable rows/cards, and `ui/theme/` contains the palette.
 `driver/DriverStatusMapper` projects protocol state/errors into AIDL DTOs. Discovery
@@ -171,7 +173,8 @@ Debug remains unminified for development. Protocol artifact/wire versions are un
 ## Asynchronous work
 
 ReaderDiscovery uses an Application-owned coroutine scope with queued
-`Dispatchers.Main` commands. Its BLE expiry Job uses `delay(1.seconds)` and is
+`Dispatchers.Main` commands and delegates scanning to the selected mode's
+ReaderScanner. BleScanner's expiry Job uses `delay(1.seconds)` and is
 cancelled when discovery stops; generation checks reject stale callbacks. Shared
 UI/AIDL scan ownership and the 20-second observation lifetime are unchanged.
 TcpDiscovery shares this scope for NSD callbacks and the platform-required Executor
@@ -193,3 +196,6 @@ and R8 release build. It removes application Handler/Looper scheduling without
 changing NSD resolution semantics. Device reconnect verification is pending because
 SM-S9160 disconnected from ADB before installation; the earlier hardware results
 above apply to the preceding ReaderDiscovery revision.
+
+The per-mode connector/scanner split and the late-link close fix passed debug
+unit/build/lint checks; device verification of TCP, NSD, Classic and BLE is pending.

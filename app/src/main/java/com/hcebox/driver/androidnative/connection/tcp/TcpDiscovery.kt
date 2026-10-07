@@ -6,8 +6,6 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.annotation.RequiresApi
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.reader.protocol.contract.LanContract
@@ -16,6 +14,8 @@ import java.net.InetAddress
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /** Resolved endpoint data belongs to the selected device, never the manual global settings. */
 data class TcpEndpoint(
@@ -26,16 +26,23 @@ data class TcpEndpoint(
     val installationId: String? = null,
 )
 
-/** Owns one NSD scan; legacy resolutions are serialized and all late scan callbacks are fenced. */
+/**
+ * Owns one NSD scan on the supplied queued Main scope; legacy resolutions are serialized and late
+ * callbacks are fenced. Stop discovery before cancelling the owner scope.
+ */
 @Suppress("DEPRECATION")
 class TcpDiscovery(
     context: Context,
     private val changed: () -> Unit,
     private val log: (String) -> Unit,
+    private val scope: CoroutineScope,
 ) {
     private val manager = context.getSystemService(NsdManager::class.java)
-    private val handler = Handler(Looper.getMainLooper())
-    private val executor = java.util.concurrent.Executor { handler.post(it) }
+    // NSD requires an Executor; keep its callbacks queued on the owner's Main scope.
+    private val executor =
+        java.util.concurrent.Executor { command ->
+            scope.launch { command.run() }
+        }
     private val multicast =
         context
             .getSystemService(WifiManager::class.java)
@@ -85,7 +92,7 @@ class TcpDiscovery(
                 }
 
                 override fun onStartDiscoveryFailed(type: String, errorCode: Int) {
-                    handler.post {
+                    scope.launch {
                         if (token == generation) {
                             stop()
                             failure(IllegalStateException("NSD start failed code=$errorCode"))
@@ -98,13 +105,13 @@ class TcpDiscovery(
                 }
 
                 override fun onServiceFound(info: NsdServiceInfo) {
-                    handler.post {
-                        if (token != generation || listener == null) return@post
+                    scope.launch {
+                        if (token != generation || listener == null) return@launch
                         if (info.serviceType.trimEnd('.') != LanContract.SERVICE_TYPE.trimEnd('.'))
-                            return@post
+                            return@launch
                         if (liveServices.size >= 32 && !liveServices.contains(key(info))) {
                             log("NSD service limit reached")
-                            return@post
+                            return@launch
                         }
                         liveServices.add(key(info))
                         if (Build.VERSION.SDK_INT >= 34) watch(info, token)
@@ -113,8 +120,8 @@ class TcpDiscovery(
                 }
 
                 override fun onServiceLost(info: NsdServiceInfo) {
-                    handler.post {
-                        if (token != generation) return@post
+                    scope.launch {
+                        if (token != generation) return@launch
                         val key = key(info)
                         liveServices.remove(key)
                         if (Build.VERSION.SDK_INT >= 34)
@@ -144,7 +151,7 @@ class TcpDiscovery(
                 ?: throw IllegalArgumentException("NSD endpoint no longer available")
         val record = entry.value
         val result = CompletableFuture<TcpEndpoint>()
-        handler.post {
+        scope.launch {
             enqueue(Resolve(record.source, null, record.endpoint.installationId, result, entry.key))
         }
         return try {
@@ -176,7 +183,7 @@ class TcpDiscovery(
         val callback =
             object : NsdManager.ResolveListener {
                 override fun onResolveFailed(info: NsdServiceInfo, errorCode: Int) {
-                    handler.post {
+                    scope.launch {
                         log(
                             "NSD resolve failed name=${task.info.serviceName} type=${task.info.serviceType} code=$errorCode"
                         )
@@ -189,7 +196,7 @@ class TcpDiscovery(
                 }
 
                 override fun onServiceResolved(info: NsdServiceInfo) {
-                    handler.post {
+                    scope.launch {
                         resolving = false
                         if (
                             !task.result.isCancelled &&
@@ -242,7 +249,7 @@ class TcpDiscovery(
         val callback =
             object : NsdManager.ServiceInfoCallback {
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
-                    handler.post {
+                    scope.launch {
                         if (token == generation) {
                             callbacks.remove(key)
                             log("NSD updates unavailable code=$errorCode")
@@ -254,7 +261,7 @@ class TcpDiscovery(
                 override fun onServiceInfoCallbackUnregistered() {}
 
                 override fun onServiceLost() {
-                    handler.post {
+                    scope.launch {
                         if (token == generation) {
                             records.remove(key)
                             changed()
@@ -263,8 +270,8 @@ class TcpDiscovery(
                 }
 
                 override fun onServiceUpdated(updated: NsdServiceInfo) {
-                    handler.post {
-                        if (token != generation || listener == null) return@post
+                    scope.launch {
+                        if (token != generation || listener == null) return@launch
                         val endpoint = parse(updated)
                         if (endpoint != null) {
                             records[key] = Record(info, endpoint)

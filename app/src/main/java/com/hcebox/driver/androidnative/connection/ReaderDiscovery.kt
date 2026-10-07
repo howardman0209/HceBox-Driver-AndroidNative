@@ -39,6 +39,7 @@ class ReaderDiscovery(
             context,
             { devices.value = listDevices() },
             { log(it) },
+            scope,
         )
     private var scanner: BluetoothLeScanner? = null
     private var generation = 0L

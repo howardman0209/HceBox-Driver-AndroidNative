@@ -174,6 +174,9 @@ ReaderDiscovery uses an Application-owned coroutine scope with queued
 `Dispatchers.Main` commands. Its BLE expiry Job uses `delay(1.seconds)` and is
 cancelled when discovery stops; generation checks reject stale callbacks. Shared
 UI/AIDL scan ownership and the 20-second observation lifetime are unchanged.
+TcpDiscovery shares this scope for NSD callbacks and the platform-required Executor
+adapter. Its worker-only synchronous refresh, connect deadline, serialized legacy
+resolution queue and retained discovery identity are unchanged.
 Follow the HceBox [Android asynchronous conventions](https://github.com/howardman0209/HceBox/blob/main/platforms/android/ASYNC_CONVENTIONS.md)
 for subsequent migrations.
 
@@ -184,3 +187,9 @@ with two reconnects and heartbeat, and BLE discovery/connect/heartbeat. BLE expi
 start/stop logs confirmed Job cancellation on scan stop. These were no-card tests;
 real-card APDU/terminal acceptance and a runtime smoke of this updated release
 remain separate. Existing dependency/icon lint warnings remain.
+
+The subsequent TcpDiscovery migration passed the same debug unit/build/lint checks
+and R8 release build. It removes application Handler/Looper scheduling without
+changing NSD resolution semantics. Device reconnect verification is pending because
+SM-S9160 disconnected from ADB before installation; the earlier hardware results
+above apply to the preceding ReaderDiscovery revision.

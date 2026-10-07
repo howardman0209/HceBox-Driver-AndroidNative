@@ -21,7 +21,7 @@ android {
 }
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 dependencies {
-    implementation(project(":protocol"))
+    implementation("com.hcebox:reader-protocol:0.1.0")
     implementation("com.hcebox:card-reader-driver-api:1.0.0-SNAPSHOT")
     implementation(platform("androidx.compose:compose-bom:2026.06.00"))
     implementation("androidx.compose.material3:material3")

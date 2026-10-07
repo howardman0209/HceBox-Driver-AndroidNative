@@ -1,27 +1,37 @@
 # Android Native NFC Driver
 
 Driver app (`com.hcebox.driver.androidnative`) runs alongside HceBox and exposes
-the remote [reader app](../../reader/README.md) through the existing
+the remote [reader app](https://github.com/howardman0209/HceBox-Reader-Android) through the existing
 `ICardReaderDriver` contract (API version 2). Native NFC access belongs to the
 reader device, not this driver device. See the
-[execution plan](../../NFC_READER_PLAN.md) and [handoff](../../reader/HANDOFF.md).
+[execution plan](https://github.com/howardman0209/HceBox/blob/main/platforms/android/NFC_READER_PLAN.md)
+and [handoff](https://github.com/howardman0209/HceBox-Reader-Android/blob/main/HANDOFF.md).
 
 ## Build
 
 Use JDK 21 and SDK 37. Configure your ignored `local.properties` with the SDK
-path. Publish the existing driver contract from `../../cardspy` if it is absent
-from Maven Local: `./gradlew :card-reader-driver-api:publishToMavenLocal`.
+path. Prepare these artifacts in Maven Local before building:
+
+- `com.hcebox:reader-protocol:0.1.0`: in Reader, run
+  `./gradlew :protocol:test :protocol:publishToMavenLocal`.
+- `com.hcebox:card-reader-driver-api:1.0.0-SNAPSHOT`: in HceBox's
+  `platforms/android/cardspy`, run `./gradlew :card-reader-driver-api:publishToMavenLocal`.
 
 ```sh
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
 Debug signing uses the standard debug keystore. APK:
-`app/build/outputs/apk/debug/app-debug.apk`. Shared protocol sources are included
-from `../../reader/protocol`; driver output goes to `build/protocol` so independent
-builds do not overwrite each other's outputs. No protocol source duplication,
-new Git submodule, or vendor SDK is involved. Source responsibilities and the six
-shared Kotlin packages are described in [protocol source map](../../reader/protocol/README.md).
+`app/build/outputs/apk/debug/app-debug.apk`. Driver builds only `:app`, consuming
+the pinned protocol JAR and published AIDL AAR. It has no sibling-project source
+paths, copied protocol code, vendor SDK or embedded protocol Gradle project.
+See the [protocol source map](https://github.com/howardman0209/HceBox-Reader-Android/blob/main/protocol/README.md).
+
+HceBox includes this repository as `platforms/android/driver/android-native`.
+A standalone checkout builds after artifact preparation, with JDK 21 and SDK 37.
+HceBox's `platforms/android/build-native-readers.sh` provides the same bootstrap
+steps for local development/CI after initializing submodules.
+
 
 ## Operation
 

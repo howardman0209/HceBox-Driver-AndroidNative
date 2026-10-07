@@ -8,5 +8,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Android-Native-Driver"
-include(":app", ":protocol")
-project(":protocol").projectDir = file("../../reader/protocol")
+include(":app")

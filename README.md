@@ -197,5 +197,10 @@ changing NSD resolution semantics. Device reconnect verification is pending beca
 SM-S9160 disconnected from ADB before installation; the earlier hardware results
 above apply to the preceding ReaderDiscovery revision.
 
-The per-mode connector/scanner split and the late-link close fix passed debug
-unit/build/lint checks; device verification of TCP, NSD, Classic and BLE is pending.
+The per-mode connector/scanner split passed debug unit/build/lint checks and the
+R8 release build. On SM-S9160 with SAH55 (2026-10-07), debug instrumentation
+passed queued Main commands, provider isolation, shared discovery ownership, TCP
+manual, TCP NSD with two reconnects and heartbeat, BLE discovery/connect/heartbeat
+(expiry Job stopped with the scan) and Classic RFCOMM to the bonded reader. These
+were no-card tests. The late-link close fix is covered by a unit test because the
+race cannot be triggered on demand.

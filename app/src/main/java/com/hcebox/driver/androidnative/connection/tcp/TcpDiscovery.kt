@@ -8,6 +8,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import androidx.annotation.RequiresApi
 import com.hcebox.cardreader.api.DeviceInfo
+import com.hcebox.driver.androidnative.connection.ReaderScanner
 import com.hcebox.reader.protocol.contract.LanContract
 import com.hcebox.reader.protocol.core.Deadline
 import java.net.InetAddress
@@ -36,7 +37,7 @@ class TcpDiscovery(
     private val changed: () -> Unit,
     private val log: (String) -> Unit,
     private val scope: CoroutineScope,
-) {
+) : ReaderScanner {
     private val manager = context.getSystemService(NsdManager::class.java)
     // NSD requires an Executor; keep its callbacks queued on the owner's Main scope.
     private val executor =
@@ -68,7 +69,7 @@ class TcpDiscovery(
 
     private val queue = java.util.ArrayDeque<Resolve>()
     private var resolving = false
-    val isRunning
+    override val isRunning
         get() = listener != null
 
     fun endpoints(): List<TcpEndpoint> =
@@ -76,7 +77,7 @@ class TcpDiscovery(
 
     fun endpoint(id: String): TcpEndpoint? = endpoints().firstOrNull { it.device.deviceId == id }
 
-    fun start(failure: (Throwable) -> Unit) {
+    override fun start(failure: (Throwable) -> Unit) {
         if (listener != null) return
         records.clear()
         changed()
@@ -316,7 +317,7 @@ class TcpDiscovery(
     private fun key(info: NsdServiceInfo) =
         "${info.serviceName}|${info.serviceType}|${if (Build.VERSION.SDK_INT >= 33) info.network?.networkHandle else null}"
 
-    fun stop() {
+    override fun stop() {
         generation++
         val old = listener
         listener = null

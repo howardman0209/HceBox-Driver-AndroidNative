@@ -1,8 +1,9 @@
-package com.hcebox.driver.androidnative.connection
+package com.hcebox.driver.androidnative.connection.ble
 
 import android.content.Context
 import com.hcebox.cardreader.api.DeviceInfo
-import com.hcebox.driver.androidnative.connection.ble.BleClient
+import com.hcebox.driver.androidnative.connection.ConnectAttempt
+import com.hcebox.driver.androidnative.connection.ReaderConnector
 import com.hcebox.reader.protocol.core.Deadline
 
 /** Live scan results; GATT setup is deadline-bounded and interruptible, so nothing is tracked. */

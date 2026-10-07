@@ -7,6 +7,9 @@ import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.cardreader.api.ReaderInfo
 import com.hcebox.cardreader.api.ReaderStatus
+import com.hcebox.driver.androidnative.connection.ble.BleConnector
+import com.hcebox.driver.androidnative.connection.classic.ClassicConnector
+import com.hcebox.driver.androidnative.connection.tcp.TcpConnector
 import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
 import com.hcebox.driver.androidnative.driver.DriverStatusMapper
 import com.hcebox.driver.androidnative.setup.missingPermissions

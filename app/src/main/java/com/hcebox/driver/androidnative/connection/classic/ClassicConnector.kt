@@ -1,9 +1,12 @@
-package com.hcebox.driver.androidnative.connection
+package com.hcebox.driver.androidnative.connection.classic
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import com.hcebox.cardreader.api.DeviceInfo
+import com.hcebox.driver.androidnative.connection.ConnectAttempt
+import com.hcebox.driver.androidnative.connection.ConnectionMode
+import com.hcebox.driver.androidnative.connection.ReaderConnector
 import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.reader.protocol.channel.MessageChannel
 import com.hcebox.reader.protocol.channel.StreamChannel

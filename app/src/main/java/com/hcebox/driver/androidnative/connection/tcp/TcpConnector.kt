@@ -1,8 +1,8 @@
-package com.hcebox.driver.androidnative.connection
+package com.hcebox.driver.androidnative.connection.tcp
 
 import com.hcebox.cardreader.api.DeviceInfo
-import com.hcebox.driver.androidnative.connection.tcp.TcpDiscovery
-import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
+import com.hcebox.driver.androidnative.connection.ConnectAttempt
+import com.hcebox.driver.androidnative.connection.ReaderConnector
 import com.hcebox.reader.protocol.channel.MessageChannel
 import com.hcebox.reader.protocol.channel.StreamChannel
 import com.hcebox.reader.protocol.core.Deadline

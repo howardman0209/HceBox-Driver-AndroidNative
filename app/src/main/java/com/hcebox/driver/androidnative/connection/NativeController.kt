@@ -13,7 +13,6 @@ import com.hcebox.driver.androidnative.connection.tcp.TcpConnector
 import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
 import com.hcebox.driver.androidnative.driver.DriverStatusMapper
 import com.hcebox.driver.androidnative.setup.missingPermissions
-import com.hcebox.reader.protocol.channel.MessageChannel
 import com.hcebox.reader.protocol.codec.Apdu
 import com.hcebox.reader.protocol.core.Deadline
 import com.hcebox.reader.protocol.model.ReaderFailure
@@ -22,7 +21,6 @@ import com.hcebox.reader.protocol.session.ReaderClient
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -137,7 +135,7 @@ class NativeController(context: Context) {
             if (missingPermissions(context, selectedMode).isNotEmpty())
                 throw SecurityException("Transport permissions required")
             log("Connecting ${device.detail}")
-            val channel = openWithin(deadline) { connector.open(device, deadline, it) }
+            val channel = openWithin(workers, deadline, ::log) { connector.open(device, deadline, it) }
             candidate =
                 ReaderClient(
                     channel,
@@ -183,30 +181,6 @@ class NativeController(context: Context) {
             throw error
         } finally {
             connectGate.release()
-        }
-    }
-
-    /** Runs a blocking open on a worker within [deadline]; any failure closes the tracked socket. */
-    private fun openWithin(
-        deadline: Deadline,
-        open: (ConnectAttempt) -> MessageChannel,
-    ): MessageChannel {
-        val attempt = ConnectAttempt()
-        val future =
-            workers.submit<MessageChannel> {
-                try {
-                    open(attempt)
-                } catch (error: Throwable) {
-                    attempt.abort()
-                    throw error
-                }
-            }
-        return try {
-            future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS)
-        } catch (error: Exception) {
-            attempt.abort()
-            future.cancel(true)
-            throw error
         }
     }
 

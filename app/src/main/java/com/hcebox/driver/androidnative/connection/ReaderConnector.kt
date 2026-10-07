@@ -6,6 +6,8 @@ import com.hcebox.reader.protocol.core.Deadline
 import com.hcebox.reader.protocol.model.Hello
 import java.io.Closeable
 import java.io.InterruptedIOException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 
 /** One connection mode: lists candidate devices and opens a framed link. Never owns the session. */
 interface ReaderConnector {
@@ -38,5 +40,41 @@ class ConnectAttempt {
     fun abort() {
         aborted = true
         resource?.let { runCatching { it.close() } }
+    }
+}
+
+/**
+ * Runs [open] on [workers] within [deadline]. Failure closes the tracked socket, and a link that
+ * finishes connecting after the caller gave up is closed instead of leaking.
+ */
+internal fun openWithin(
+    workers: ExecutorService,
+    deadline: Deadline,
+    log: (String) -> Unit,
+    open: (ConnectAttempt) -> MessageChannel,
+): MessageChannel {
+    val attempt = ConnectAttempt()
+    val future =
+        workers.submit<MessageChannel> {
+            try {
+                open(attempt)
+            } catch (error: Throwable) {
+                attempt.abort()
+                throw error
+            }
+        }
+    return try {
+        future.get(deadline.remaining().toLong(), TimeUnit.MILLISECONDS)
+    } catch (error: Exception) {
+        attempt.abort()
+        // cancel() fails once the worker has finished, so its result may be an open channel.
+        if (!future.cancel(true))
+            runCatching { future.get() }
+                .getOrNull()
+                ?.let { late ->
+                    runCatching { late.close() }
+                    log("Closed a link that connected after the deadline")
+                }
+        throw error
     }
 }

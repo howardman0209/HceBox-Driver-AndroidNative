@@ -20,7 +20,8 @@ Debug signing uses the standard debug keystore. APK:
 `app/build/outputs/apk/debug/app-debug.apk`. Shared protocol sources are included
 from `../../reader/protocol`; driver output goes to `build/protocol` so independent
 builds do not overwrite each other's outputs. No protocol source duplication,
-new Git submodule, or vendor SDK is involved.
+new Git submodule, or vendor SDK is involved. Source responsibilities and the six
+shared Kotlin packages are described in [protocol source map](../../reader/protocol/README.md).
 
 ## Operation
 

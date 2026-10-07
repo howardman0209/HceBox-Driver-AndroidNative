@@ -10,8 +10,8 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresApi
 import com.hcebox.cardreader.api.DeviceInfo
-import com.hcebox.reader.protocol.Deadline
-import com.hcebox.reader.protocol.LanContract
+import com.hcebox.reader.protocol.contract.LanContract
+import com.hcebox.reader.protocol.core.Deadline
 import java.net.InetAddress
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap

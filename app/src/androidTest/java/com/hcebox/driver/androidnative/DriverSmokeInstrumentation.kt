@@ -7,8 +7,8 @@ import android.os.*
 import com.hcebox.cardreader.api.*
 import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.driver.androidnative.connection.ReaderDiscovery
-import com.hcebox.reader.protocol.Apdu
-import com.hcebox.reader.protocol.Status
+import com.hcebox.reader.protocol.codec.Apdu
+import com.hcebox.reader.protocol.model.Status
 import java.util.concurrent.*
 
 /** Device smoke test using the platform instrumentation API without an extra test framework. */

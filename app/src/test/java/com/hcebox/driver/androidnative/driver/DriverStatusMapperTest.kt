@@ -2,8 +2,8 @@ package com.hcebox.driver.androidnative.driver
 
 import com.hcebox.cardreader.api.CardReaderErrorCode
 import com.hcebox.cardreader.api.DeviceInfo
-import com.hcebox.reader.protocol.ReaderFailure
-import com.hcebox.reader.protocol.Status
+import com.hcebox.reader.protocol.model.ReaderFailure
+import com.hcebox.reader.protocol.model.Status
 import java.net.SocketTimeoutException
 import java.util.concurrent.ExecutionException
 import org.junit.Assert.*

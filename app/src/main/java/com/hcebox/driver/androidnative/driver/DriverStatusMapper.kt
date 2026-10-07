@@ -5,8 +5,8 @@ import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.cardreader.api.ReaderInfo
 import com.hcebox.cardreader.api.ReaderStatus
-import com.hcebox.reader.protocol.ReaderFailure
-import com.hcebox.reader.protocol.Status
+import com.hcebox.reader.protocol.model.ReaderFailure
+import com.hcebox.reader.protocol.model.Status
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeoutException
 

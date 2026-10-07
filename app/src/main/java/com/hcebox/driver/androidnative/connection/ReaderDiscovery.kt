@@ -9,7 +9,7 @@ import android.os.Looper
 import android.os.ParcelUuid
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.driver.androidnative.connection.tcp.TcpDiscovery
-import com.hcebox.reader.protocol.BluetoothContract
+import com.hcebox.reader.protocol.contract.BluetoothContract
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Shared scan owner for UI and AIDL callers; BLE observations expire after 20 seconds. */

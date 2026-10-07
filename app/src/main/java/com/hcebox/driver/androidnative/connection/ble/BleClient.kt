@@ -4,7 +4,11 @@ import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.content.Context
 import android.os.Build
-import com.hcebox.reader.protocol.*
+import com.hcebox.reader.protocol.channel.FragmentChannel
+import com.hcebox.reader.protocol.channel.MessageChannel
+import com.hcebox.reader.protocol.contract.BluetoothContract
+import com.hcebox.reader.protocol.core.Deadline
+import com.hcebox.reader.protocol.model.ReaderFailure
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicReference
 

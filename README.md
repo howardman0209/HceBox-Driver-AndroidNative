@@ -150,8 +150,9 @@ are density-specific WebP resources, adaptive icons and a monochrome vector.
 
 ## App version and signing
 
-App versionCode is `100` (`1_0_0`) and release versionName is `1.0.0`; debug
-adds `.debug`. Archive names follow `<applicationId>_1.0.0-100-YYYYMMDD`, with
+App versionCode is `10000` for versionName `1.0.0`, using
+`major * 10000 + minor * 100 + patch` (minor/patch 0..99); debug
+adds `.debug`. Archive names follow `<applicationId>_1.0.0-10000-YYYYMMDD`, with
 variant suffixes supplied by Android Gradle Plugin. Read the actual filename from
 `app/build/outputs/apk/<variant>/output-metadata.json`; for the smoke-test command,
 set `DRIVER_APK` to that generated debug APK path.
@@ -160,3 +161,9 @@ Debug and release use the same configured release certificate. Existing installs
 signed by the old Android debug key cannot be updated in place with a different
 certificate; handle any reinstall/data reset explicitly. Protocol artifact `0.1.0`
 and wire protocol v2 remain independent of the app version.
+
+Release builds enable R8 code optimization and resource shrinking with
+`proguard-android-optimize.txt` and narrow app rules. Android manifest entry points
+use platform defaults; Native Driver relies on the published AIDL consumer rules.
+Keep `app/build/outputs/mapping/release/` with each shipped APK for crash decoding.
+Debug remains unminified for development. Protocol artifact/wire versions are unchanged.

@@ -11,8 +11,17 @@ val hceBoxReleaseStorePassword = providers.gradleProperty("HCEBOX_RELEASE_STORE_
 val hceBoxReleaseKeyAlias = providers.gradleProperty("HCEBOX_RELEASE_KEY_ALIAS").orNull
 val hceBoxReleaseKeyPassword = providers.gradleProperty("HCEBOX_RELEASE_KEY_PASSWORD").orNull
 val hceBoxApplicationId = "com.hcebox.driver.androidnative"
-val hceBoxVersionCode = 1_0_0
 val hceBoxVersionName = "1.0.0"
+// Encode semantic versions monotonically; minor and patch each occupy two digits.
+val hceBoxVersionParts = hceBoxVersionName.split('.').map(String::toInt)
+require(hceBoxVersionParts.size == 3 && hceBoxVersionParts[0] >= 0 &&
+    hceBoxVersionParts[1] in 0..99 && hceBoxVersionParts[2] in 0..99) {
+    "Use major.minor.patch with minor/patch between 0 and 99"
+}
+val encodedVersionCode = hceBoxVersionParts[0].toLong() * 10000 +
+    hceBoxVersionParts[1] * 100 + hceBoxVersionParts[2]
+require(encodedVersionCode in 1..2_100_000_000) { "versionCode exceeds the Android range" }
+val hceBoxVersionCode = encodedVersionCode.toInt()
 val apkBuildDate: String? = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
 
 android {
@@ -38,6 +47,9 @@ android {
 
     buildTypes {
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
         debug {

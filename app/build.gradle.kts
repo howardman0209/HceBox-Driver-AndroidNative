@@ -13,7 +13,7 @@ val hceBoxReleaseKeyPassword = providers.gradleProperty("HCEBOX_RELEASE_KEY_PASS
 val hceBoxApplicationId = "com.hcebox.driver.androidnative"
 val hceBoxVersionCode = 1_0_0
 val hceBoxVersionName = "1.0.0"
-val apkBuildDate = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+val apkBuildDate: String? = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
 
 android {
     namespace = "com.hcebox.driver.androidnative"

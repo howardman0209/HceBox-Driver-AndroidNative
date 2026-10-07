@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
 @SuppressLint("MissingPermission")
 class ReaderDiscovery(
     private val context: Context,
-    private val mode: () -> String,
+    private val mode: () -> ConnectionMode,
     private val permissions: () -> Array<String>,
     private val listDevices: () -> List<DeviceInfo>,
     private val log: (String) -> Unit,
@@ -49,7 +49,8 @@ class ReaderDiscovery(
         object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 scope.launch {
-                    if (generation != token || scanner == null || mode() != "BLE") return@launch
+                    if (generation != token || scanner == null || mode() != ConnectionMode.BLE)
+                        return@launch
                     val device =
                         DeviceInfo(
                             "BLE:${result.device.address}",
@@ -94,12 +95,12 @@ class ReaderDiscovery(
             try {
                 if (permissions().isNotEmpty())
                     throw SecurityException("Transport permissions required")
-                if (mode() == "TCP") {
+                if (mode() == ConnectionMode.TCP) {
                     devices.value = listDevices()
                     tcp.start(::failed)
                     return@launch
                 }
-                if (mode() != "BLE") {
+                if (mode() != ConnectionMode.BLE) {
                     devices.value = listDevices()
                     return@launch
                 }
@@ -143,7 +144,7 @@ class ReaderDiscovery(
 
     fun refresh() {
         scope.launch {
-            if (mode() != "BLE") devices.value = listDevices()
+            if (mode() != ConnectionMode.BLE) devices.value = listDevices()
         }
     }
 

@@ -5,6 +5,7 @@ import android.app.Instrumentation
 import android.content.*
 import android.os.*
 import com.hcebox.cardreader.api.*
+import com.hcebox.driver.androidnative.connection.ConnectionMode
 import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.driver.androidnative.connection.ReaderDiscovery
 import com.hcebox.reader.protocol.codec.Apdu
@@ -44,9 +45,9 @@ class DriverSmokeInstrumentation : Instrumentation() {
             verifyDiscoveryProviderIsolation()
             verifyQueuedDiscoveryOwnership()
             controller.disconnect()
-            controller.setMode(arguments.getString("mode", "TCP"))
+            controller.setMode(ConnectionMode.valueOf(arguments.getString("mode", "TCP")))
             val nsd = arguments.getString("nsd") == "true"
-            if (controller.mode == "TCP" && !nsd)
+            if (controller.mode == ConnectionMode.TCP && !nsd)
                 controller.configure(arguments.getString("host", controller.host), 35965)
             bound =
                 targetContext.bindService(
@@ -59,7 +60,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
             check(driver.driverInfo.apiVersion == CardReaderDriverContract.API_VERSION)
             check(driver.driverStatus.readiness == DriverReadiness.READY)
             val targetId = arguments.getString("deviceId")
-            check(controller.mode != "CLASSIC" || targetId != null) {
+            check(controller.mode != ConnectionMode.CLASSIC || targetId != null) {
                 "Classic smoke test requires explicit deviceId"
             }
             val found = CompletableFuture<DeviceInfo>()
@@ -251,7 +252,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
         val discovery =
             ReaderDiscovery(
                 targetContext,
-                mode = { "CLASSIC" },
+                mode = { ConnectionMode.CLASSIC },
                 permissions = { emptyArray() },
                 listDevices = { expected },
                 log = {},
@@ -286,7 +287,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
         val discovery =
             ReaderDiscovery(
                 targetContext,
-                mode = { "CLASSIC" },
+                mode = { ConnectionMode.CLASSIC },
                 permissions = { emptyArray() },
                 listDevices = {
                     queried = true

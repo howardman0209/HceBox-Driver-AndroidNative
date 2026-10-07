@@ -7,11 +7,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import com.hcebox.driver.androidnative.*
+import com.hcebox.driver.androidnative.connection.ConnectionMode
 import com.hcebox.driver.androidnative.ui.transportLabel
 
 /** Settings presentation; actions are coordinated by the app host. */
 @Composable
-internal fun DriverSettingsScreen(mode: String, onSetup: () -> Unit) {
+internal fun DriverSettingsScreen(mode: ConnectionMode, onSetup: () -> Unit) {
     val context = LocalContext.current
     Text("Connection setup", style = MaterialTheme.typography.titleMedium)
     Text("Permissions apply to the selected connection method: ${transportLabel(mode)}.")

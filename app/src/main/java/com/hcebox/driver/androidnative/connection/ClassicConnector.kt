@@ -16,7 +16,7 @@ class ClassicConnector(private val context: Context) : ReaderConnector {
     private fun adapter() = context.getSystemService(BluetoothManager::class.java)?.adapter
 
     override fun devices(): List<DeviceInfo> {
-        if (missingPermissions(context, "CLASSIC").isNotEmpty())
+        if (missingPermissions(context, ConnectionMode.CLASSIC).isNotEmpty())
             throw SecurityException("Bluetooth permissions required")
         val adapter = adapter()
         check(adapter?.isEnabled == true) { "Bluetooth disabled" }

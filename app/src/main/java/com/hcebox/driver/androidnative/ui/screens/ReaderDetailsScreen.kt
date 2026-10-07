@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import com.hcebox.driver.androidnative.*
+import com.hcebox.driver.androidnative.connection.ConnectionMode
 import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.driver.androidnative.ui.components.StatusCard
 import com.hcebox.driver.androidnative.ui.transportLabel
@@ -12,7 +13,7 @@ import com.hcebox.driver.androidnative.ui.transportLabel
 @Composable
 internal fun ReaderDetailsScreen(
     state: NativeController.View,
-    mode: String,
+    mode: ConnectionMode,
     busy: Boolean,
     canReconnect: Boolean,
     onDisconnect: () -> Unit,

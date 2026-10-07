@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.driver.androidnative.*
 import com.hcebox.driver.androidnative.R
+import com.hcebox.driver.androidnative.connection.ConnectionMode
 import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.driver.androidnative.ui.screens.*
@@ -74,7 +75,7 @@ fun DriverApp(controller: NativeController) {
     }
     DisposableEffect(page, mode, permitted, refresh) {
         if (page == "Readers" && permitted) {
-            scanning = mode != "CLASSIC"
+            scanning = mode != ConnectionMode.CLASSIC
             val scanMode = mode
             controller.discovery.start(owner) {
                 // A transport switch retires the previous scan; it is not a connection failure.

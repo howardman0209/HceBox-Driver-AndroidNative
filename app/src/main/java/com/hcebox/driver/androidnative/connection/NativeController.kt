@@ -57,15 +57,18 @@ class NativeController(context: Context) {
     private val prefs
         get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
 
-    val mode
-        get() = prefs.getString("mode", "TCP") ?: "TCP"
+    val mode: ConnectionMode
+        get() {
+            val saved = prefs.getString("mode", null)
+            // Missing or unknown values fall back to the TCP default.
+            return ConnectionMode.entries.firstOrNull { it.name == saved } ?: ConnectionMode.TCP
+        }
 
-    fun setMode(value: String) {
-        require(value in listOf("TCP", "CLASSIC", "BLE"))
+    fun setMode(value: ConnectionMode) {
         check(view.value.device == null)
         disconnect()
         discovery.reset()
-        prefs.edit { putString("mode", value) }
+        prefs.edit { putString("mode", value.name) }
     }
 
     val host
@@ -85,12 +88,11 @@ class NativeController(context: Context) {
     }
 
     /** Picks the link implementation for a mode; the session lifecycle stays in this class. */
-    private fun connector(mode: String): ReaderConnector =
+    private fun connector(mode: ConnectionMode): ReaderConnector =
         when (mode) {
-            "TCP" -> TcpConnector(discovery.tcp, ::manualEndpoint)
-            "CLASSIC" -> ClassicConnector(context)
-            "BLE" -> BleConnector(context, { discovery.devices.value }, ::log)
-            else -> error("Unknown connection mode $mode")
+            ConnectionMode.TCP -> TcpConnector(discovery.tcp, ::manualEndpoint)
+            ConnectionMode.CLASSIC -> ClassicConnector(context)
+            ConnectionMode.BLE -> BleConnector(context, { discovery.devices.value }, ::log)
         }
 
     fun devices(): List<DeviceInfo> = connector(mode).devices()

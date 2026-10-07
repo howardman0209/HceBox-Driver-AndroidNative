@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hcebox.driver.androidnative.*
+import com.hcebox.driver.androidnative.connection.ConnectionMode
 import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.driver.androidnative.ui.components.ReaderRow
 import com.hcebox.driver.androidnative.ui.transportLabel
@@ -16,13 +17,13 @@ import com.hcebox.driver.androidnative.ui.transportLabel
 /** Readers presentation; actions are coordinated by the app host. */
 @Composable
 internal fun ReadersScreen(
-    mode: String,
+    mode: ConnectionMode,
     permitted: Boolean,
     state: NativeController.View,
     devices: List<com.hcebox.cardreader.api.DeviceInfo>,
     scanning: Boolean,
     busy: Boolean,
-    onMode: (String) -> Unit,
+    onMode: (ConnectionMode) -> Unit,
     onSetup: () -> Unit,
     onDetails: () -> Unit,
     onConnect: (String) -> Unit,
@@ -35,20 +36,20 @@ internal fun ReadersScreen(
         style = MaterialTheme.typography.bodyLarge,
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("TCP", "CLASSIC", "BLE").forEach { value ->
+        ConnectionMode.entries.forEach { value ->
             FilterChip(
                 selected = mode == value,
                 enabled = !busy && state.device == null,
                 onClick = {
                     onMode(value)
                 },
-                label = { Text(if (value == "CLASSIC") "Classic" else value) },
+                label = { Text(if (value == ConnectionMode.CLASSIC) "Classic" else value.name) },
             )
         }
     }
     if (!permitted) {
         Text(
-            "Allow ${if (mode == "TCP") "local network" else "Bluetooth"} access to find and connect readers."
+            "Allow ${if (mode == ConnectionMode.TCP) "local network" else "Bluetooth"} access to find and connect readers."
         )
         Button(onClick = { onSetup() }) {
             Text("Allow access")
@@ -65,7 +66,7 @@ internal fun ReadersScreen(
         }
     }
     Text(
-        if (mode == "CLASSIC") "Paired readers" else "Available readers",
+        if (mode == ConnectionMode.CLASSIC) "Paired readers" else "Available readers",
         style = MaterialTheme.typography.titleMedium,
     )
     if (scanning)
@@ -86,10 +87,12 @@ internal fun ReadersScreen(
         }
     if (devices.isEmpty())
         Text(
-            if (mode == "TCP")
-                "Start the reader and connect both devices to the same local network."
-            else if (mode == "BLE") "Start Bluetooth LE on the reader and keep it nearby."
-            else "Pair the reader in Bluetooth settings first."
+            when (mode) {
+                ConnectionMode.TCP ->
+                    "Start the reader and connect both devices to the same local network."
+                ConnectionMode.BLE -> "Start Bluetooth LE on the reader and keep it nearby."
+                ConnectionMode.CLASSIC -> "Pair the reader in Bluetooth settings first."
+            }
         )
     if (busy)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -104,14 +107,14 @@ internal fun ReadersScreen(
     ) {
         Text("Search again")
     }
-    if (mode == "TCP")
+    if (mode == ConnectionMode.TCP)
         OutlinedButton(
             enabled = !busy && state.device == null,
             onClick = { onManual() },
         ) {
             Text("Manual connection")
         }
-    if (mode == "CLASSIC")
+    if (mode == ConnectionMode.CLASSIC)
         OutlinedButton(
             onClick = {
                 context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))

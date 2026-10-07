@@ -6,12 +6,13 @@ import androidx.compose.runtime.*
 import com.hcebox.cardreader.api.CardReaderErrorCode
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.driver.androidnative.*
+import com.hcebox.driver.androidnative.connection.ConnectionMode
 
-internal fun transportLabel(mode: String) =
+internal fun transportLabel(mode: ConnectionMode) =
     when (mode) {
-        "TCP" -> "Local network"
-        "CLASSIC" -> "Bluetooth Classic"
-        else -> "Bluetooth LE"
+        ConnectionMode.TCP -> "Local network"
+        ConnectionMode.CLASSIC -> "Bluetooth Classic"
+        ConnectionMode.BLE -> "Bluetooth LE"
     }
 
 internal fun friendlyError(error: DriverError) =

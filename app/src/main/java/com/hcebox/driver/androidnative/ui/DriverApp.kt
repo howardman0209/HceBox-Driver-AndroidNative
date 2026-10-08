@@ -61,8 +61,6 @@ fun DriverApp(controller: NativeController) {
     var lastId by rememberSaveable { mutableStateOf<String?>(null) }
     var host by rememberSaveable { mutableStateOf(controller.host) }
     var port by rememberSaveable { mutableStateOf(controller.port.toString()) }
-    var remoteOrigin by rememberSaveable { mutableStateOf(controller.preferences.snapshot().remoteOrigin) }
-    val configured = mode != ConnectionMode.REMOTE || controller.preferences.snapshot().remoteOrigin.isNotBlank()
     val owner = remember { Any() }
     val setup =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -84,8 +82,8 @@ fun DriverApp(controller: NativeController) {
             controller.discovery.stop(owner)
         }
     }
-    DisposableEffect(page, mode, permitted, configured, refresh) {
-        if (page == "Readers" && permitted && configured) {
+    DisposableEffect(page, mode, permitted, refresh) {
+        if (page == "Readers" && permitted) {
             scanning = mode != ConnectionMode.CLASSIC
             val scanMode = mode
             controller.discovery.start(owner) {
@@ -199,7 +197,7 @@ fun DriverApp(controller: NativeController) {
                 "Readers" ->
                     ReadersScreen(
                         mode,
-                        permitted && configured,
+                        permitted,
                         state,
                         devices,
                         scanning,
@@ -219,8 +217,7 @@ fun DriverApp(controller: NativeController) {
                             }
                         },
                         onSetup = {
-                            if (mode == ConnectionMode.REMOTE) page = "Settings"
-                            else setup.launch(Intent(context, SetupActivity::class.java))
+                            setup.launch(Intent(context, SetupActivity::class.java))
                         },
                         onDetails = { page = "Reader details" },
                         onConnect = {
@@ -262,22 +259,7 @@ fun DriverApp(controller: NativeController) {
                     DriverSettingsScreen(
                         mode,
                         onSetup = { setup.launch(Intent(context, SetupActivity::class.java)) },
-                        remoteOrigin = remoteOrigin,
-                        onOrigin = { remoteOrigin = it },
-                        canSave = !busy && state.device == null,
-                        onSaveOrigin = {
-                            busy = true
-                            scope.launch {
-                                try {
-                                    controller.configureRemote(remoteOrigin)
-                                    remoteOrigin = controller.preferences.snapshot().remoteOrigin
-                                    error = null
-                                    refresh++
-                                } catch (failure: CancellationException) { throw failure }
-                                catch (failure: Exception) { error = controller.failure(failure) }
-                                finally { busy = false }
-                            }
-                        },
+
                     )
                 "Diagnostics" ->
                     DriverDiagnosticsScreen(

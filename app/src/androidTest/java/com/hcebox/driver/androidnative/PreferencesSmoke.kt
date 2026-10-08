@@ -94,11 +94,9 @@ internal suspend fun verifyRemoteSetupBinder(context: Context) {
         check(bound)
         val driver = withContext(Dispatchers.IO) { connected.get(5, TimeUnit.SECONDS) }
         check(driver.driverInfo.apiVersion == CardReaderDriverContract.API_VERSION)
-        if (controller.preferences.snapshot().remoteOrigin.isBlank()) {
-            check(driver.driverStatus.readiness == DriverReadiness.UNAVAILABLE)
-            val result = withContext(Dispatchers.IO) { driver.connectDevice("REMOTE:missing", 500) }
-            check(!result.isSuccess && result.error?.code == CardReaderErrorCode.SETUP_REQUIRED)
-        }
+        check(driver.driverStatus.readiness == DriverReadiness.READY)
+        val result = withContext(Dispatchers.IO) { driver.connectDevice("REMOTE:missing", 500) }
+        check(!result.isSuccess && result.error?.code == CardReaderErrorCode.DEVICE_NOT_FOUND)
         check(driver.listConnectedDevices().isEmpty())
     } finally {
         if (bound) context.unbindService(connection)

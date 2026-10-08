@@ -10,7 +10,7 @@ import com.hcebox.cardreader.api.ReaderInfo
 import com.hcebox.cardreader.api.ReaderStatus
 import com.hcebox.driver.androidnative.connection.ble.BleConnector
 import com.hcebox.driver.androidnative.connection.remote.RemoteConnector
-import com.hcebox.remote.client.RemoteServerOrigin
+import com.hcebox.driver.androidnative.BuildConfig
 import com.hcebox.driver.androidnative.connection.classic.ClassicConnector
 import com.hcebox.driver.androidnative.connection.tcp.TcpConnector
 import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
@@ -56,7 +56,7 @@ class NativeController(context: Context) {
             log = ::log,
             scope = discoveryScope,
             ready = { preferences.awaitReady() },
-            remoteOrigin = { preferences.snapshot().remoteOrigin },
+            remoteOrigin = { BuildConfig.REMOTE_SERVER_ORIGIN },
         )
     private val lock = Any()
     private val connectGate = Semaphore(1)
@@ -83,9 +83,6 @@ class NativeController(context: Context) {
     suspend fun setMode(value: ConnectionMode) = changeConfiguration { preferences.setMode(value) }
 
     suspend fun configure(host: String, port: Int) = changeConfiguration { preferences.configure(host, port) }
-
-    /** Sets the server for subsequent Remote discovery; active connections must be closed first. */
-    suspend fun configureRemote(origin: String) = changeConfiguration { preferences.setRemoteOrigin(origin) }
 
     /** Picks the link implementation for a mode; the session lifecycle stays in this class. */
     private fun connector(mode: ConnectionMode): ReaderConnector =
@@ -137,10 +134,6 @@ class NativeController(context: Context) {
             }
             // Read the mode once so a concurrent switch cannot mix transports mid-connect.
             val selectedMode = mode
-            if (selectedMode == ConnectionMode.REMOTE) {
-                try { RemoteServerOrigin(preferences.snapshot().remoteOrigin) }
-                catch (_: Exception) { throw ReaderFailure(8, "Configure a Remote HTTPS server") }
-            }
             val connector = connector(selectedMode)
             val device =
                 connector.devices().firstOrNull { it.deviceId == id }

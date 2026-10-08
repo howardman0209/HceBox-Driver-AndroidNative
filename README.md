@@ -223,27 +223,30 @@ Debug/release currently share applicationId `com.hcebox.driver.androidnative`.
 
 ## Remote mode
 
-Choose Remote, set an HTTPS server origin in Settings and save. The Driver polls
-that server's available Readers while discovery is active. Tap a Reader to connect;
+Choose Remote. The Driver uses BuildConfig.REMOTE_SERVER_ORIGIN: fixed
+https://remote.hcebox.com for debug/release and https://localhost:18443 for
+localTest. The address cannot be edited in the app. It polls available Readers
+while discovery is active. Tap a Reader to connect;
 first successful reservation wins. BUSY never causes automatic rematching.
 
 Remote requires no Bluetooth or local-discovery permission solely for this mode.
-An absent server origin reports UNAVAILABLE/SETUP_REQUIRED through the existing
-Binder API. Direct failed/expired generations require Search again; after a lost
+The fixed endpoint removes the missing-address setup gate. Readiness still
+depends on loaded settings and required permissions, not server reachability. Direct failed/expired generations require Search again; after a lost
 connection, Find an available Reader returns to discovery instead of reusing an
 old ID. Driver reconnection and reader selection remain explicit.
 
 Apps consume remote-client 0.2.0 and reader-protocol 0.2.0 from versioned Maven
-artifacts. The configured origin namespaces transient endpoint IDs via SHA-256;
+artifacts. The build variant's origin namespaces transient endpoint IDs via SHA-256;
 that hash is endpoint identity, not authentication. Networking uses CIO with normal
 TLS checks, bounded queues and v2 correlation/deadlines. No APDU retry/replay.
 
-Remote checkpoint verification (2026-10-08): 17 app JVM tests passed, including
-9 preference tests, 6 existing controller/mapper tests and two Remote v2
+Remote checkpoint verification (2026-10-08): 18 app JVM tests passed, including
+9 preference tests, one build-origin contract test, 6 controller/mapper tests and two Remote v2
 handshake/select/APDU integration cases. The response-loss case records exactly
-one dispatch and no replay. Debug/test APKs, lint and R8 release passed. S1
-public Binder setup smoke verifies Remote grant requirements and unconfigured
-server readiness/SETUP_REQUIRED; it sends no APDU. Full public WSS/Binder/card
+one dispatch and no replay. Debug/test APKs, lint and R8 release passed. The earlier S1
+public Binder setup smoke verified Remote grant requirements and the former
+missing-origin readiness gate; it sent no APDU. The revised fixed-origin Binder
+smoke compiles but has not been rerun on a device. Full public WSS/Binder/card
 and real-terminal timing gates remain separate.
 
 CIO HTTPS runtime smoke also passed on S1 against hcebox.com with default TLS/hostname verification; this does not validate the Remote server deployment.

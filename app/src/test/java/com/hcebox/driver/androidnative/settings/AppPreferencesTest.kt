@@ -168,19 +168,13 @@ class AppPreferencesTest {
         assertEquals("saved.example", preferences.snapshot().host)
     }
 
-    @Test fun remoteSettingsValidateCanonicalOriginWithoutRotatingIdentity() = runBlocking {
-        val preferences = create()
-        val before = preferences.awaitReady()
-        preferences.setRemoteOrigin(" HTTPS://Remote.Hcebox.com:443/ ")
-        assertEquals("https://remote.hcebox.com", preferences.snapshot().remoteOrigin)
-        assertFailsForInvalidOrigin(preferences)
-        assertEquals(before.endpointId, preferences.snapshot().endpointId)
-    }
-
-    private suspend fun assertFailsForInvalidOrigin(preferences: AppPreferences) {
-        val error = runCatching { preferences.setRemoteOrigin("https://user:secret@example.com/path") }.exceptionOrNull()
-        assertTrue(error is IllegalArgumentException)
-        assertFalse(error!!.message!!.contains("secret"))
-        assertEquals("https://remote.hcebox.com", preferences.snapshot().remoteOrigin)
+    @Test fun retiredRemoteOriginDoesNotAffectSettingsOrIdentity() = runBlocking {
+        val legacy = mutablePreferencesOf(
+            stringPreferencesKey("endpoint") to "existing-id",
+            stringPreferencesKey("remoteOrigin") to "http://retired.invalid/path",
+            stringPreferencesKey("mode") to "REMOTE",
+        )
+        val settings = create(legacy).awaitReady()
+        assertEquals(AppPreferences.Settings(mode = ConnectionMode.REMOTE, endpointId = "existing-id"), settings)
     }
 }

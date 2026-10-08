@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.*
 import com.hcebox.cardreader.api.*
-import com.hcebox.driver.androidnative.connection.ConnectionMode
 import com.hcebox.driver.androidnative.connection.NativeController
 import com.hcebox.driver.androidnative.setup.missingPermissions
 import kotlinx.coroutines.*
@@ -38,8 +37,7 @@ class NativeDriverService : Service() {
             override fun getDriverStatus(): DriverStatus {
                 val loaded = controller.preferences.state.value
                 val settings = loaded.settings
-                return if (settings == null || loaded.error != null ||
-                    (settings.mode == ConnectionMode.REMOTE && settings.remoteOrigin.isBlank()))
+                return if (settings == null || loaded.error != null)
                     DriverStatus(DriverReadiness.UNAVAILABLE)
                 else if (missingPermissions(this@NativeDriverService, settings.mode).isEmpty())
                     DriverStatus(DriverReadiness.READY)

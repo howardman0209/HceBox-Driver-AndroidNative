@@ -19,7 +19,7 @@ class LocalRemoteInstrumentation : Instrumentation() {
     private var origin = ""
 
     override fun onCreate(arguments: Bundle?) {
-        origin = arguments?.getString("origin") ?: "https://localhost:18443"
+        origin = BuildConfig.REMOTE_SERVER_ORIGIN
         start()
     }
 

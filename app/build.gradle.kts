@@ -38,6 +38,7 @@ android {
         targetSdk = 37
         versionCode = hceBoxVersionCode
         versionName = hceBoxVersionName
+        buildConfigField("String", "REMOTE_SERVER_ORIGIN", "\"https://remote.hcebox.com\"")
         testInstrumentationRunner = if (hceBoxTestBuildType == "localTest")
             "com.hcebox.driver.androidnative.LocalRemoteInstrumentation" else "com.hcebox.driver.androidnative.DriverSmokeInstrumentation"
     }
@@ -68,6 +69,7 @@ android {
     buildTypes.create("localTest") {
         initWith(buildTypes.getByName("debug"))
         versionNameSuffix = ".localtest"
+        buildConfigField("String", "REMOTE_SERVER_ORIGIN", "\"https://localhost:18443\"")
         matchingFallbacks += "debug"
     }
 

@@ -2,7 +2,8 @@ package com.hcebox.driver.androidnative.connection
 
 import android.content.Context
 import android.util.Log
-import androidx.core.content.edit
+import android.os.Looper
+import com.hcebox.driver.androidnative.appPreferences
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.cardreader.api.DriverError
 import com.hcebox.cardreader.api.ReaderInfo
@@ -18,12 +19,15 @@ import com.hcebox.reader.protocol.core.Deadline
 import com.hcebox.reader.protocol.model.ReaderFailure
 import com.hcebox.reader.protocol.model.Status
 import com.hcebox.reader.protocol.session.ReaderClient
-import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Process-wide connection owner shared by the workbench and bound service. */
@@ -36,6 +40,7 @@ class NativeController(context: Context) {
 
     val view = MutableStateFlow(View())
     val notes = MutableStateFlow("Ready")
+    val preferences = context.appPreferences
     private val context = context.applicationContext
     // Application-owned controller work must outlive the UI; Main preserves queued scan commands.
     private val discoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -47,6 +52,7 @@ class NativeController(context: Context) {
             listDevices = ::devices,
             log = ::log,
             scope = discoveryScope,
+            ready = { preferences.awaitReady() },
         )
     private val lock = Any()
     private val connectGate = Semaphore(1)
@@ -55,36 +61,20 @@ class NativeController(context: Context) {
     private val workers = Executors.newCachedThreadPool {
         Thread(it, "NativeConnect").apply { isDaemon = true }
     }
-    private val prefs
-        get() = context.getSharedPreferences("driver", Context.MODE_PRIVATE)
+    val mode: ConnectionMode get() = preferences.snapshot().mode
+    val host: String get() = preferences.snapshot().host
+    val port: Int get() = preferences.snapshot().port
 
-    val mode: ConnectionMode
-        get() {
-            val saved = prefs.getString("mode", null)
-            // Missing or unknown values fall back to the TCP default.
-            return ConnectionMode.entries.firstOrNull { it.name == saved } ?: ConnectionMode.TCP
-        }
-
-    fun setMode(value: ConnectionMode) {
+    suspend fun setMode(value: ConnectionMode) {
         check(view.value.device == null)
         disconnect()
+        preferences.setMode(value)
         discovery.reset()
-        prefs.edit { putString("mode", value.name) }
     }
 
-    val host
-        get() = prefs.getString("host", "") ?: ""
-
-    val port
-        get() = prefs.getInt("port", 35965)
-
-    fun configure(host: String, port: Int) {
-        require(host.isNotBlank() && port in 1..65535) { "Valid host and port required" }
+    suspend fun configure(host: String, port: Int) {
         check(view.value.device == null) { "Disconnect before editing endpoint" }
-        prefs.edit {
-            putString("host", host.trim())
-            putInt("port", port)
-        }
+        preferences.configure(host, port)
         discovery.refresh()
     }
 
@@ -99,14 +89,13 @@ class NativeController(context: Context) {
     fun devices(): List<DeviceInfo> = connector(mode).devices()
 
     private fun manualEndpoint(): TcpEndpoint? {
-        if (host.isBlank()) return null
-        val id =
-            prefs.getString("endpoint", null)
-                ?: UUID.randomUUID().toString().also { prefs.edit { putString("endpoint", it) } }
+        val settings = preferences.snapshot()
+        if (settings.host.isBlank()) return null
+        val id = settings.endpointId
         return TcpEndpoint(
-            DeviceInfo("TCP:$id", "Manual Android NFC Reader", "TCP $host:$port (manual)"),
-            listOf(host),
-            port,
+            DeviceInfo("TCP:$id", "Manual Android NFC Reader", "TCP ${settings.host}:${settings.port} (manual)"),
+            listOf(settings.host),
+            settings.port,
         )
     }
 
@@ -115,12 +104,22 @@ class NativeController(context: Context) {
         notes.value = (message + "\n" + notes.value).take(3000)
     }
 
+    /** Connects on a worker within the caller's budget, including preference initialization. */
     fun connect(id: String?, timeoutMs: Int) {
+        check(Looper.myLooper() != Looper.getMainLooper()) { "Connect must run on a worker" }
         val deadline = Deadline(timeoutMs)
         if (!connectGate.tryAcquire()) throw ReaderFailure(6, "Connection in progress")
         var candidate: ReaderClient? = null
         val token: Long
         try {
+            // Binder connect runs on a worker; loading consumes the original connect budget.
+            try {
+                runBlocking { withTimeout(deadline.remaining().milliseconds) { preferences.awaitReady() } }
+            } catch (error: TimeoutCancellationException) {
+                throw ReaderFailure(3, "Settings initialization timeout")
+            } catch (error: Exception) {
+                throw ReaderFailure(8, "Settings unavailable")
+            }
             synchronized(lock) {
                 if (view.value.device?.deviceId == id && client != null) return
                 if (client != null) throw ReaderFailure(6, "Another device connected")

@@ -33,6 +33,14 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DriverApp(controller: NativeController) {
+    val settingsState by controller.preferences.state.collectAsStateWithLifecycle()
+    if (settingsState.settings == null || settingsState.error != null) {
+        Column(Modifier.padding(16.dp)) {
+            Text(if (settingsState.error == null) "Loading settings…" else "Settings could not be loaded.")
+            if (settingsState.error != null) Button(onClick = { controller.preferences.retry() }) { Text("Retry") }
+        }
+        return
+    }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -193,10 +201,17 @@ fun DriverApp(controller: NativeController) {
                         scanning,
                         busy,
                         onMode = {
-                            controller.setMode(it)
-                            mode = it
-                            error = null
-                            permitted = missingPermissions(context, controller.mode).isEmpty()
+                            busy = true
+                            scope.launch {
+                                try {
+                                    controller.setMode(it)
+                                    mode = it
+                                    error = null
+                                    permitted = missingPermissions(context, controller.mode).isEmpty()
+                                } catch (failure: Exception) {
+                                    error = controller.failure(failure)
+                                } finally { busy = false }
+                            }
                         },
                         onSetup = { setup.launch(Intent(context, SetupActivity::class.java)) },
                         onDetails = { page = "Reader details" },

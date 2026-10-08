@@ -204,3 +204,19 @@ manual, TCP NSD with two reconnects and heartbeat, BLE discovery/connect/heartbe
 (expiry Job stopped with the scan) and Classic RFCOMM to the bonded reader. These
 were no-card tests. The late-link close fix is covered by a unit test because the
 race cannot be triggered on demand.
+
+## Preference ownership
+
+NativeApp owns AppPreferences/Preferences DataStore 1.2.1. Legacy `driver` mode,
+host/port and endpoint ID migrate before discovery/connect. Loading/errors expose
+UNAVAILABLE readiness; connect waits within its original timeout on a worker.
+UI/SetupActivity await ready settings without blocking Main. Mode/endpoint updates
+are suspending and atomic; a failed write leaves the last durable settings and
+requires Retry. Connection, selection and card sessions are never persisted.
+
+Verification (2026-10-08): 7 preference JVM tests plus 6 existing app tests passed;
+debug/test APKs, lint and R8 release build passed. S1 SP00000596 no-card platform
+instrumentation verified actual Android migration/reopen, delayed-settings scan
+cancellation and existing discovery ownership/provider behavior. Run that isolated
+smoke with `-e preferences true` using DriverSmokeInstrumentation; it sends no APDU.
+Debug/release currently share applicationId `com.hcebox.driver.androidnative`.

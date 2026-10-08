@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 
 /** Device smoke test using the platform instrumentation API without an extra test framework. */
 class DriverSmokeInstrumentation : Instrumentation() {
@@ -26,6 +27,22 @@ class DriverSmokeInstrumentation : Instrumentation() {
     }
 
     override fun onStart() {
+        if (arguments.getString("preferences") == "true") {
+            val results = Bundle()
+            try {
+                runBlocking { verifyPreferencesMigration(targetContext); verifyDelayedPreferenceDiscovery(targetContext) }
+                runBlocking { targetContext.appPreferences.awaitReady() }
+                verifyRemovalStatusMapping()
+                verifyDiscoveryProviderIsolation()
+                verifyQueuedDiscoveryOwnership()
+                results.putString("stream", "Android preference migration/reopen and discovery ownership tests passed; no APDU sent.\n")
+                finish(Activity.RESULT_OK, results)
+            } catch (error: Exception) {
+                results.putString("stream", "Preference smoke failed: ${error.javaClass.simpleName}: ${error.message}\n")
+                finish(Activity.RESULT_CANCELED, results)
+            }
+            return
+        }
         val results = Bundle()
         var bound = false
         var resultCode = Activity.RESULT_OK
@@ -39,16 +56,17 @@ class DriverSmokeInstrumentation : Instrumentation() {
                 override fun onServiceDisconnected(name: ComponentName?) {}
             }
         val controller = targetContext.nativeController
+        runBlocking { controller.preferences.awaitReady() }
         val previousMode = controller.mode
         try {
             verifyRemovalStatusMapping()
             verifyDiscoveryProviderIsolation()
             verifyQueuedDiscoveryOwnership()
             controller.disconnect()
-            controller.setMode(ConnectionMode.valueOf(arguments.getString("mode", "TCP")))
+            runBlocking { controller.setMode(ConnectionMode.valueOf(arguments.getString("mode", "TCP"))) }
             val nsd = arguments.getString("nsd") == "true"
             if (controller.mode == ConnectionMode.TCP && !nsd)
-                controller.configure(arguments.getString("host", controller.host), 35965)
+                runBlocking { controller.configure(arguments.getString("host", controller.host), 35965) }
             bound =
                 targetContext.bindService(
                     Intent(targetContext, NativeDriverService::class.java),
@@ -237,7 +255,7 @@ class DriverSmokeInstrumentation : Instrumentation() {
             resultCode = Activity.RESULT_CANCELED
         } finally {
             controller.disconnect()
-            controller.setMode(previousMode)
+            runBlocking { controller.setMode(previousMode) }
             if (bound) targetContext.unbindService(connection)
         }
         finish(resultCode, results)

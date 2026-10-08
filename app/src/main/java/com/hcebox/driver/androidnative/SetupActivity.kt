@@ -6,9 +6,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.hcebox.driver.androidnative.setup.missingPermissions
 import com.hcebox.driver.androidnative.setup.optionalSetupPermissions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 /** Transparent permission-only entry point shared by HceBox and the driver's UI. */
 class SetupActivity : ComponentActivity() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val permissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             if (optionalSetupPermissions().any { results[it] == false }) {
@@ -19,16 +26,31 @@ class SetupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val required =
-            missingPermissions(this, nativeController.mode) +
-                optionalSetupPermissions().filter {
-                    checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        scope.launch {
+            try {
+                appPreferences.awaitReady()
+                val required = missingPermissions(this@SetupActivity, nativeController.mode) +
+                    optionalSetupPermissions().filter {
+                        checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    }
+                if (required.isEmpty()) finishWithResult()
+                else if (savedInstanceState == null) {
+                    Log.d("NativeSetup", "Requesting setup permissions for selected transport")
+                    permissionRequest.launch(required)
                 }
-        if (required.isEmpty()) finishWithResult()
-        else if (savedInstanceState == null) {
-            Log.d("NativeSetup", "Requesting setup permissions for selected transport")
-            permissionRequest.launch(required)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Log.d("NativeSetup", "Setup deferred because settings are unavailable")
+                setResult(RESULT_CANCELED)
+                finish()
+            }
         }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     private fun finishWithResult() {

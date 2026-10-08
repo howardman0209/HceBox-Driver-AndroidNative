@@ -21,6 +21,7 @@ class ReaderDiscovery(
     private val listDevices: () -> List<DeviceInfo>,
     private val log: (String) -> Unit,
     private val scope: CoroutineScope,
+    private val ready: suspend () -> Unit = {},
 ) {
     val devices = MutableStateFlow<List<DeviceInfo>>(emptyList())
     private val owners = mutableMapOf<Any, (Throwable) -> Unit>()
@@ -46,15 +47,18 @@ class ReaderDiscovery(
     fun start(owner: Any, failure: (Throwable) -> Unit) {
         scope.launch {
             owners[owner] = failure
-            if (ConnectionMode.entries.any { scanner(it).isRunning }) return@launch
             try {
+                ready()
+                // A stop/reset during initialization must not start a retired scan.
+                if (owners[owner] !== failure) return@launch
+                if (ConnectionMode.entries.any { scanner(it).isRunning }) return@launch
                 if (permissions().isNotEmpty())
                     throw SecurityException("Transport permissions required")
                 scanner(mode()).start(::failed)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                failed(error)
+                if (owners[owner] === failure) failed(error)
             }
         }
     }

@@ -34,10 +34,15 @@ class NativeDriverService : Service() {
                     listOf("Android ISO-DEP Reader"),
                 )
 
-            override fun getDriverStatus() =
-                if (missingPermissions(this@NativeDriverService, controller.mode).isEmpty())
+            override fun getDriverStatus(): DriverStatus {
+                val loaded = controller.preferences.state.value
+                val settings = loaded.settings
+                return if (settings == null || loaded.error != null)
+                    DriverStatus(DriverReadiness.UNAVAILABLE)
+                else if (missingPermissions(this@NativeDriverService, settings.mode).isEmpty())
                     DriverStatus(DriverReadiness.READY)
                 else DriverStatus(DriverReadiness.PERMISSION_REQUIRED)
+            }
 
             override fun startDiscovery(callback: IDiscoveryCallback?) {
                 callback ?: return

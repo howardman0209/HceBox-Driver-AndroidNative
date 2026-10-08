@@ -239,9 +239,11 @@ that hash is endpoint identity, not authentication. Networking uses CIO with nor
 TLS checks, bounded queues and v2 correlation/deadlines. No APDU retry/replay.
 
 Remote checkpoint verification (2026-10-08): 17 app JVM tests passed, including
-8 existing/preference foundation tests, origin validation and two Remote v2
+9 preference tests, 6 existing controller/mapper tests and two Remote v2
 handshake/select/APDU integration cases. The response-loss case records exactly
 one dispatch and no replay. Debug/test APKs, lint and R8 release passed. S1
 public Binder setup smoke verifies Remote grant requirements and unconfigured
 server readiness/SETUP_REQUIRED; it sends no APDU. Full public WSS/Binder/card
 and real-terminal timing gates remain separate.
+
+CIO HTTPS runtime smoke also passed on S1 against hcebox.com with default TLS/hostname verification; this does not validate the Remote server deployment.

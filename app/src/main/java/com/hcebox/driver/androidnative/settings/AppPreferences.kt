@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.hcebox.driver.androidnative.connection.ConnectionMode
 import java.util.UUID
+import com.hcebox.remote.client.RemoteServerOrigin
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,7 @@ class AppPreferences internal constructor(
         val host: String = "",
         val port: Int = 35965,
         val endpointId: String,
+        val remoteOrigin: String = "",
     )
 
     data class State(val settings: Settings? = null, val error: Throwable? = null)
@@ -87,20 +89,30 @@ class AppPreferences internal constructor(
         }
     }
 
+    /** Saves a canonical HTTPS origin; validation errors never disclose the supplied URL. */
+    suspend fun setRemoteOrigin(value: String) {
+        val origin = try { RemoteServerOrigin(value.trim().removeSuffix("/")).https }
+            catch (_: Exception) { throw IllegalArgumentException("Use an HTTPS origin without credentials or paths") }
+        update { it[REMOTE_ORIGIN] = origin }
+    }
+
     private suspend fun update(change: (MutablePreferences) -> Unit) {
         awaitReady()
-        writes.withLock {
-            try {
-                val data = store.edit { change(it) }
-                mutableState.value = State(decode(data))
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                mutableState.value = State(mutableState.value.settings, error)
-                log("App preferences save failed: ${error.javaClass.simpleName}")
-                throw error
+        // The app owns accepted writes; caller cancellation cannot leave the cache behind disk.
+        scope.async(start = CoroutineStart.UNDISPATCHED) {
+            writes.withLock {
+                try {
+                    val data = store.edit { change(it) }
+                    mutableState.value = State(decode(data))
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    mutableState.value = State(mutableState.value.settings, error)
+                    log("App preferences save failed: ${error.javaClass.simpleName}")
+                    throw error
+                }
             }
-        }
+        }.await()
     }
 
     private fun decode(data: Preferences) =
@@ -109,12 +121,14 @@ class AppPreferences internal constructor(
             data[HOST] ?: "",
             data[PORT] ?: 35965,
             checkNotNull(data[ID]),
+            data[REMOTE_ORIGIN] ?: "",
         )
 
     companion object {
         private val MODE = stringPreferencesKey("mode")
         private val HOST = stringPreferencesKey("host")
         private val PORT = intPreferencesKey("port")
+        private val REMOTE_ORIGIN = stringPreferencesKey("remoteOrigin")
         private val ID = stringPreferencesKey("endpoint")
 
         /** Creates the app's single store, migrating legacy settings before the first read/write. */

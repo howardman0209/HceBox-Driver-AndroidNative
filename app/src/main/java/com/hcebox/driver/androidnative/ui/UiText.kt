@@ -13,6 +13,7 @@ internal fun transportLabel(mode: ConnectionMode) =
         ConnectionMode.TCP -> "Local network"
         ConnectionMode.CLASSIC -> "Bluetooth Classic"
         ConnectionMode.BLE -> "Bluetooth LE"
+        ConnectionMode.REMOTE -> "Remote"
     }
 
 internal fun friendlyError(error: DriverError) =

@@ -1,6 +1,17 @@
 package com.hcebox.driver.androidnative
 
 import android.content.Context
+import com.hcebox.remote.client.createHttpClient
+import io.ktor.client.request.prepareGet
+import io.ktor.http.HttpStatusCode
+import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
+import com.hcebox.cardreader.api.*
+import com.hcebox.driver.androidnative.setup.missingPermissions
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import androidx.datastore.preferences.SharedPreferencesMigration
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.hcebox.driver.androidnative.connection.ConnectionMode
@@ -8,6 +19,7 @@ import com.hcebox.driver.androidnative.connection.ReaderDiscovery
 import com.hcebox.driver.androidnative.settings.AppPreferences
 import java.util.UUID
 import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.seconds
 
 /** Exercises the actual Android migration with isolated legacy/store files, without card I/O. */
 internal suspend fun verifyPreferencesMigration(context: Context) {
@@ -22,7 +34,7 @@ internal suspend fun verifyPreferencesMigration(context: Context) {
         val store = PreferenceDataStoreFactory.create(scope = scope,
             migrations = listOf(SharedPreferencesMigration(context, name)), produceFile = { file })
         val preferences = AppPreferences(store, scope)
-        val loaded = withTimeout(5000) { preferences.awaitReady() }
+        val loaded = withTimeout(5.seconds) { preferences.awaitReady() }
         check(loaded.mode == ConnectionMode.BLE && loaded.host == "fixture.example" && loaded.port == 12345)
         check(loaded.endpointId == "preserved-endpoint")
         check(legacy.all.isEmpty()) { "Legacy values were not cleaned up after migration" }
@@ -37,7 +49,7 @@ internal suspend fun verifyPreferencesMigration(context: Context) {
         val store = PreferenceDataStoreFactory.create(scope = restartedScope,
             migrations = listOf(SharedPreferencesMigration(context, name)), produceFile = { file })
         val restarted = AppPreferences(store, restartedScope)
-        check(withTimeout(5000) { restarted.awaitReady() } == original)
+        check(withTimeout(5.seconds) { restarted.awaitReady() } == original)
     } finally { restartedScope.coroutineContext[Job]!!.cancelAndJoin() }
 }
 
@@ -60,4 +72,48 @@ internal suspend fun verifyDelayedPreferenceDiscovery(context: Context) {
         release.complete(Unit)
         withContext(Dispatchers.Main) { yield(); check(!queried) }
     } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+}
+
+/** Verifies the new mode's public Binder setup behavior without opening a network/card link. */
+internal suspend fun verifyRemoteSetupBinder(context: Context) {
+    val controller = context.nativeController
+    controller.preferences.awaitReady()
+    val previous = controller.mode
+    val connected = CompletableFuture<ICardReaderDriver>()
+    val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            connected.complete(ICardReaderDriver.Stub.asInterface(binder))
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {}
+    }
+    var bound = false
+    try {
+        controller.setMode(ConnectionMode.REMOTE)
+        check(missingPermissions(context, ConnectionMode.REMOTE).isEmpty())
+        bound = context.bindService(Intent(context, NativeDriverService::class.java), connection, Context.BIND_AUTO_CREATE)
+        check(bound)
+        val driver = withContext(Dispatchers.IO) { connected.get(5, TimeUnit.SECONDS) }
+        check(driver.driverInfo.apiVersion == CardReaderDriverContract.API_VERSION)
+        if (controller.preferences.snapshot().remoteOrigin.isBlank()) {
+            check(driver.driverStatus.readiness == DriverReadiness.UNAVAILABLE)
+            val result = withContext(Dispatchers.IO) { driver.connectDevice("REMOTE:missing", 500) }
+            check(!result.isSuccess && result.error?.code == CardReaderErrorCode.SETUP_REQUIRED)
+        }
+        check(driver.listConnectedDevices().isEmpty())
+    } finally {
+        if (bound) context.unbindService(connection)
+        controller.setMode(previous)
+    }
+}
+
+/** Verifies CIO's normal certificate/hostname validation against the owned public website. */
+internal suspend fun verifyPublicHttpsRuntime() {
+    val http = createHttpClient()
+    try {
+        withTimeout(10.seconds) {
+            http.prepareGet("https://hcebox.com").execute { response ->
+                check(response.status == HttpStatusCode.OK) { "Public HTTPS runtime check failed" }
+            }
+        }
+    } finally { http.close() }
 }

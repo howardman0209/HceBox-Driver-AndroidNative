@@ -3,6 +3,7 @@ package com.hcebox.driver.androidnative.connection
 import android.content.Context
 import com.hcebox.cardreader.api.DeviceInfo
 import com.hcebox.driver.androidnative.connection.ble.BleScanner
+import com.hcebox.driver.androidnative.connection.remote.RemoteScanner
 import com.hcebox.driver.androidnative.connection.classic.ClassicScanner
 import com.hcebox.driver.androidnative.connection.tcp.TcpScanner
 import kotlinx.coroutines.CancellationException
@@ -22,6 +23,7 @@ class ReaderDiscovery(
     private val log: (String) -> Unit,
     private val scope: CoroutineScope,
     private val ready: suspend () -> Unit = {},
+    private val remoteOrigin: () -> String = { "" },
 ) {
     val devices = MutableStateFlow<List<DeviceInfo>>(emptyList())
     private val owners = mutableMapOf<Any, (Throwable) -> Unit>()
@@ -37,11 +39,14 @@ class ReaderDiscovery(
     private val ble =
         BleScanner(context, { if (mode() == ConnectionMode.BLE) devices.value = it }, log, scope)
 
+    val remote = RemoteScanner(scope, remoteOrigin, { devices.value = listDevices() }, log)
+
     private fun scanner(mode: ConnectionMode): ReaderScanner =
         when (mode) {
             ConnectionMode.TCP -> tcp
             ConnectionMode.CLASSIC -> classic
             ConnectionMode.BLE -> ble
+            ConnectionMode.REMOTE -> remote
         }
 
     fun start(owner: Any, failure: (Throwable) -> Unit) {

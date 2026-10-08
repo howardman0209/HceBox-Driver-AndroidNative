@@ -30,12 +30,13 @@ class DriverSmokeInstrumentation : Instrumentation() {
         if (arguments.getString("preferences") == "true") {
             val results = Bundle()
             try {
-                runBlocking { verifyPreferencesMigration(targetContext); verifyDelayedPreferenceDiscovery(targetContext) }
+                runBlocking { verifyPreferencesMigration(targetContext); verifyDelayedPreferenceDiscovery(targetContext); verifyRemoteSetupBinder(targetContext) }
+                if (arguments.getString("tls") == "true") runBlocking { verifyPublicHttpsRuntime() }
                 runBlocking { targetContext.appPreferences.awaitReady() }
                 verifyRemovalStatusMapping()
                 verifyDiscoveryProviderIsolation()
                 verifyQueuedDiscoveryOwnership()
-                results.putString("stream", "Android preference migration/reopen and discovery ownership tests passed; no APDU sent.\n")
+                results.putString("stream", "Android preference/mode Binder/discovery smoke passed; no APDU sent.\n")
                 finish(Activity.RESULT_OK, results)
             } catch (error: Exception) {
                 results.putString("stream", "Preference smoke failed: ${error.javaClass.simpleName}: ${error.message}\n")

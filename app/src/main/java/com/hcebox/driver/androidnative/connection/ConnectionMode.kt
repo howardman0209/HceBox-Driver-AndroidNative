@@ -5,4 +5,5 @@ enum class ConnectionMode {
     TCP,
     CLASSIC,
     BLE,
+    REMOTE,
 }

@@ -8,10 +8,12 @@ import java.io.IOException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import kotlin.time.Duration.Companion.seconds
 import org.junit.rules.TemporaryFolder
 
 class AppPreferencesTest {
@@ -139,4 +141,46 @@ class AppPreferencesTest {
         assertEquals(ConnectionMode.TCP, preferences.awaitReady().mode)
     }
 
+
+    @Test fun acceptedWriteOutlivesItsCallerAndUpdatesCache() = runBlocking {
+        var data = emptyPreferences()
+        var writing = false
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = object : DataStore<Preferences> {
+            override val data: Flow<Preferences> get() = flowOf(data)
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
+                if (writing) { entered.complete(Unit); release.await() }
+                data = transform(data)
+                return data
+            }
+        }
+        val preferences = AppPreferences(store, scope)
+        preferences.awaitReady()
+        writing = true
+        val caller = launch { preferences.configure("saved.example", 23456) }
+        entered.await()
+        caller.cancelAndJoin()
+        release.complete(Unit)
+        withTimeout(5.seconds) {
+            preferences.state.first { it.settings?.port == 23456 }
+        }
+        assertEquals("saved.example", preferences.snapshot().host)
+    }
+
+    @Test fun remoteSettingsValidateCanonicalOriginWithoutRotatingIdentity() = runBlocking {
+        val preferences = create()
+        val before = preferences.awaitReady()
+        preferences.setRemoteOrigin(" HTTPS://Remote.Hcebox.com:443/ ")
+        assertEquals("https://remote.hcebox.com", preferences.snapshot().remoteOrigin)
+        assertFailsForInvalidOrigin(preferences)
+        assertEquals(before.endpointId, preferences.snapshot().endpointId)
+    }
+
+    private suspend fun assertFailsForInvalidOrigin(preferences: AppPreferences) {
+        val error = runCatching { preferences.setRemoteOrigin("https://user:secret@example.com/path") }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertFalse(error!!.message!!.contains("secret"))
+        assertEquals("https://remote.hcebox.com", preferences.snapshot().remoteOrigin)
+    }
 }

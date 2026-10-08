@@ -13,6 +13,7 @@ import com.hcebox.driver.androidnative.connection.ConnectionMode
 fun missingPermissions(context: Context, mode: ConnectionMode): Array<String> {
     val required =
         when (mode) {
+            ConnectionMode.REMOTE -> emptyList()
             ConnectionMode.TCP ->
                 if (Build.VERSION.SDK_INT >= 37) listOf(Manifest.permission.ACCESS_LOCAL_NETWORK)
                 else emptyList()

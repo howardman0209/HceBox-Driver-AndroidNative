@@ -43,16 +43,17 @@ internal fun ReadersScreen(
                 onClick = {
                     onMode(value)
                 },
-                label = { Text(if (value == ConnectionMode.CLASSIC) "Classic" else value.name) },
+                label = { Text(when (value) { ConnectionMode.CLASSIC -> "Classic"; ConnectionMode.REMOTE -> "Remote"; else -> value.name }) },
             )
         }
     }
     if (!permitted) {
         Text(
-            "Allow ${if (mode == ConnectionMode.TCP) "local network" else "Bluetooth"} access to find and connect readers."
+            if (mode == ConnectionMode.REMOTE) "Configure a Remote HTTPS server in Settings."
+            else "Allow ${if (mode == ConnectionMode.TCP) "local network" else "Bluetooth"} access to find and connect readers."
         )
         Button(onClick = { onSetup() }) {
-            Text("Allow access")
+            Text(if (mode == ConnectionMode.REMOTE) "Remote settings" else "Allow access")
         }
     }
     state.device?.let { connected ->
@@ -79,7 +80,7 @@ internal fun ReadersScreen(
         .forEach { device ->
             ReaderRow(
                 device.displayName,
-                transportLabel(mode),
+                if (mode == ConnectionMode.REMOTE) device.detail ?: "Remote" else transportLabel(mode),
                 !busy && state.device == null && permitted,
             ) {
                 onConnect(device.deviceId)
@@ -92,6 +93,7 @@ internal fun ReadersScreen(
                     "Start the reader and connect both devices to the same local network."
                 ConnectionMode.BLE -> "Start Bluetooth LE on the reader and keep it nearby."
                 ConnectionMode.CLASSIC -> "Pair the reader in Bluetooth settings first."
+                ConnectionMode.REMOTE -> "Enable Remote and Start a Reader using the same server."
             }
         )
     if (busy)

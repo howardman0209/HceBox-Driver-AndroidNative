@@ -9,6 +9,8 @@ import com.hcebox.cardreader.api.DriverError
 import com.hcebox.cardreader.api.ReaderInfo
 import com.hcebox.cardreader.api.ReaderStatus
 import com.hcebox.driver.androidnative.connection.ble.BleConnector
+import com.hcebox.driver.androidnative.connection.remote.RemoteConnector
+import com.hcebox.remote.client.RemoteServerOrigin
 import com.hcebox.driver.androidnative.connection.classic.ClassicConnector
 import com.hcebox.driver.androidnative.connection.tcp.TcpConnector
 import com.hcebox.driver.androidnative.connection.tcp.TcpEndpoint
@@ -25,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlin.time.Duration.Companion.milliseconds
@@ -53,6 +56,7 @@ class NativeController(context: Context) {
             log = ::log,
             scope = discoveryScope,
             ready = { preferences.awaitReady() },
+            remoteOrigin = { preferences.snapshot().remoteOrigin },
         )
     private val lock = Any()
     private val connectGate = Semaphore(1)
@@ -65,18 +69,23 @@ class NativeController(context: Context) {
     val host: String get() = preferences.snapshot().host
     val port: Int get() = preferences.snapshot().port
 
-    suspend fun setMode(value: ConnectionMode) {
-        check(view.value.device == null)
-        disconnect()
-        preferences.setMode(value)
-        discovery.reset()
-    }
+    /** Saves configuration in the process scope, fencing concurrent connection attempts. */
+    private suspend fun changeConfiguration(change: suspend () -> Unit) = discoveryScope.async {
+        if (!connectGate.tryAcquire()) throw ReaderFailure(6, "Connection in progress")
+        try {
+            check(view.value.device == null) { "Disconnect before editing connection settings" }
+            disconnect()
+            change()
+            discovery.reset()
+        } finally { connectGate.release() }
+    }.await()
 
-    suspend fun configure(host: String, port: Int) {
-        check(view.value.device == null) { "Disconnect before editing endpoint" }
-        preferences.configure(host, port)
-        discovery.refresh()
-    }
+    suspend fun setMode(value: ConnectionMode) = changeConfiguration { preferences.setMode(value) }
+
+    suspend fun configure(host: String, port: Int) = changeConfiguration { preferences.configure(host, port) }
+
+    /** Sets the server for subsequent Remote discovery; active connections must be closed first. */
+    suspend fun configureRemote(origin: String) = changeConfiguration { preferences.setRemoteOrigin(origin) }
 
     /** Picks the link implementation for a mode; the session lifecycle stays in this class. */
     private fun connector(mode: ConnectionMode): ReaderConnector =
@@ -84,6 +93,7 @@ class NativeController(context: Context) {
             ConnectionMode.TCP -> TcpConnector(discovery.tcp, ::manualEndpoint)
             ConnectionMode.CLASSIC -> ClassicConnector(context)
             ConnectionMode.BLE -> BleConnector(context, { discovery.devices.value }, ::log)
+            ConnectionMode.REMOTE -> RemoteConnector(discovery.remote)
         }
 
     fun devices(): List<DeviceInfo> = connector(mode).devices()
@@ -127,6 +137,10 @@ class NativeController(context: Context) {
             }
             // Read the mode once so a concurrent switch cannot mix transports mid-connect.
             val selectedMode = mode
+            if (selectedMode == ConnectionMode.REMOTE) {
+                try { RemoteServerOrigin(preferences.snapshot().remoteOrigin) }
+                catch (_: Exception) { throw ReaderFailure(8, "Configure a Remote HTTPS server") }
+            }
             val connector = connector(selectedMode)
             val device =
                 connector.devices().firstOrNull { it.deviceId == id }

@@ -12,7 +12,7 @@ and [handoff](https://github.com/howardman0209/HceBox-Reader-Android/blob/main/H
 Use JDK 21 and SDK 37. Configure your ignored `local.properties` with the SDK
 path. Prepare these artifacts in Maven Local before building:
 
-- `com.hcebox:reader-protocol:0.1.0`: in Reader, run
+- `com.hcebox:reader-protocol:0.2.0`: in Reader, run
   `./gradlew :protocol:test :protocol:publishToMavenLocal`.
 - `com.hcebox:card-reader-driver-api:1.0.0-SNAPSHOT`: in HceBox's
   `platforms/android/cardspy`, run `./gradlew :card-reader-driver-api:publishToMavenLocal`.
@@ -69,7 +69,7 @@ Reader. The driver setup Activity handles transport-specific permissions;
 TCP needs no Bluetooth runtime grant; Android 17 requires the local-network
 permission through the same setup Activity. Slot index is zero. Selection does not
 wait for a card. Failures are typed AIDL errors; HceBox owns their status-word
-mapping. Relay is future work and has no active selector.
+mapping. Remote is available as a WSS connection mode; deployment and hardware acceptance remain separate.
 
 ## Android service smoke test
 
@@ -220,3 +220,28 @@ instrumentation verified actual Android migration/reopen, delayed-settings scan
 cancellation and existing discovery ownership/provider behavior. Run that isolated
 smoke with `-e preferences true` using DriverSmokeInstrumentation; it sends no APDU.
 Debug/release currently share applicationId `com.hcebox.driver.androidnative`.
+
+## Remote mode
+
+Choose Remote, set an HTTPS server origin in Settings and save. The Driver polls
+that server's available Readers while discovery is active. Tap a Reader to connect;
+first successful reservation wins. BUSY never causes automatic rematching.
+
+Remote requires no Bluetooth or local-discovery permission solely for this mode.
+An absent server origin reports UNAVAILABLE/SETUP_REQUIRED through the existing
+Binder API. Direct failed/expired generations require Search again; after a lost
+connection, Find an available Reader returns to discovery instead of reusing an
+old ID. Driver reconnection and reader selection remain explicit.
+
+Apps consume remote-client 0.2.0 and reader-protocol 0.2.0 from versioned Maven
+artifacts. The configured origin namespaces transient endpoint IDs via SHA-256;
+that hash is endpoint identity, not authentication. Networking uses CIO with normal
+TLS checks, bounded queues and v2 correlation/deadlines. No APDU retry/replay.
+
+Remote checkpoint verification (2026-10-08): 17 app JVM tests passed, including
+8 existing/preference foundation tests, origin validation and two Remote v2
+handshake/select/APDU integration cases. The response-loss case records exactly
+one dispatch and no replay. Debug/test APKs, lint and R8 release passed. S1
+public Binder setup smoke verifies Remote grant requirements and unconfigured
+server readiness/SETUP_REQUIRED; it sends no APDU. Full public WSS/Binder/card
+and real-terminal timing gates remain separate.

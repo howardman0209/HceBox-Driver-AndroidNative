@@ -50,6 +50,6 @@ internal fun ReaderDetailsScreen(
         }
     else
         Button(enabled = !busy && canReconnect, onClick = { onReconnect() }) {
-            Text(if (busy) "Connecting…" else "Reconnect")
+            Text(if (busy) "Connecting…" else if (mode == ConnectionMode.REMOTE) "Find an available Reader" else "Reconnect")
         }
 }

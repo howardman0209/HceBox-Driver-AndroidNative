@@ -70,8 +70,9 @@ base {
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 dependencies {
+    implementation("com.hcebox:remote-client:0.2.0")
     implementation("androidx.datastore:datastore-preferences:1.2.1")
-    implementation("com.hcebox:reader-protocol:0.1.0")
+    implementation("com.hcebox:reader-protocol:0.2.0")
     implementation("com.hcebox:card-reader-driver-api:1.0.0-SNAPSHOT")
     implementation(platform("androidx.compose:compose-bom:2026.06.00"))
     implementation("androidx.compose.material3:material3")
@@ -79,4 +80,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.ktor:ktor-server-test-host:3.6.0")
 }

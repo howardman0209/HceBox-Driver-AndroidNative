@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:label="Android Native Driver (Local test)"
+        android:networkSecurityConfig="@xml/local_network_security_config"
+        tools:replace="android:label" />
+</manifest>

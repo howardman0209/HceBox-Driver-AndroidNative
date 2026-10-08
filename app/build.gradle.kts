@@ -24,7 +24,12 @@ require(encodedVersionCode in 1..2_100_000_000) { "versionCode exceeds the Andro
 val hceBoxVersionCode = encodedVersionCode.toInt()
 val apkBuildDate: String? = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
 
+// Local TLS tests opt in explicitly; normal debug/release trust remains unchanged.
+val hceBoxTestBuildType = providers.gradleProperty("HCEBOX_TEST_BUILD_TYPE").getOrElse("debug")
+require(hceBoxTestBuildType in listOf("debug", "localTest"))
+
 android {
+    testBuildType = hceBoxTestBuildType
     namespace = "com.hcebox.driver.androidnative"
     compileSdk = 37
     defaultConfig {
@@ -33,7 +38,8 @@ android {
         targetSdk = 37
         versionCode = hceBoxVersionCode
         versionName = hceBoxVersionName
-        testInstrumentationRunner = "com.hcebox.driver.androidnative.DriverSmokeInstrumentation"
+        testInstrumentationRunner = if (hceBoxTestBuildType == "localTest")
+            "com.hcebox.driver.androidnative.LocalRemoteInstrumentation" else "com.hcebox.driver.androidnative.DriverSmokeInstrumentation"
     }
     buildFeatures { compose = true; buildConfig = true }
     signingConfigs {
@@ -57,6 +63,12 @@ android {
             isDebuggable = true
             signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    buildTypes.create("localTest") {
+        initWith(buildTypes.getByName("debug"))
+        versionNameSuffix = ".localtest"
+        matchingFallbacks += "debug"
     }
 
     compileOptions {
